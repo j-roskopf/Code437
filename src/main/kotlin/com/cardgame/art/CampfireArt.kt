@@ -1,0 +1,123 @@
+package com.cardgame.art
+
+import kotlin.math.sin
+import org.cosplay.CPCanvas
+import org.cosplay.CPColor
+import org.cosplay.CPPixel
+import scala.Option
+
+/**
+ * Multi-frame ASCII campfire for [RestScene]. Frames cycle to simulate flicker and ember drift.
+ */
+object CampfireArt {
+    private val frames: List<List<String>> = listOf(
+        """
+            |          ░░    ░░          
+            |         ▒▒▓▓  ▓▓▒▒         
+            |        ░▓██▒  ▒██▓░        
+            |       ░▓████░░████▓░       
+            |       ▒████████████▒       
+            |      ░██████████████░      
+            |      ▒████▒░░▒████▒      
+            |      ░███▓░~~░▓███░      
+            |       ▒██▒░**░▒██▒       
+            |       ░█▓░^~~^░▓█░       
+            |        ▒▒░*~~*░▒▒        
+            |       ░█░░░░░░░░█░       
+            |     ░███░░████░░███░     
+            |   ░█████░░░░░░░░█████░   
+            |  ░████████████████████░  
+            |         ░░▒▒▒▒░░         
+        """.trimMargin().lines(),
+        """
+            |          ░░    ░░          
+            |         ▒▒▓▓  ▓▓▒▒         
+            |        ░▓██▒  ▒██▓░        
+            |       ░▓████░░████▓░       
+            |       ▒████████████▒       
+            |      ░██████████████░      
+            |      ▒████▒░░▒████▒      
+            |      ░███▓░^~~^▓███░      
+            |       ▒██▒░**░▒██▒       
+            |       ░█▓░*~~*░▓█░       
+            |        ▒▒░^~~^░▒▒        
+            |       ░█░░░░░░░░█░       
+            |     ░███░░████░░███░     
+            |   ░█████░░░░░░░░█████░   
+            |  ░████████████████████░  
+            |         ░░▒▒▒▒░░         
+        """.trimMargin().lines(),
+        """
+            |          ░░    ░░          
+            |         ▒▒▓▓  ▓▓▒▒         
+            |        ░▓██▒  ▒██▓░        
+            |       ░▓████░░████▓░       
+            |       ▒████████████▒       
+            |      ░██████████████░      
+            |      ▒████▒░░▒████▒      
+            |      ░███▓░*~~*▓███░      
+            |       ▒██▒░^^░▒██▒       
+            |       ░█▓░~**~░▓█░       
+            |        ▒▒░*~~*░▒▒        
+            |       ░█░░░░░░░░█░       
+            |     ░███░░████░░███░     
+            |   ░█████░░░░░░░░█████░   
+            |  ░████████████████████░  
+            |         ░░▒▒▒▒░░         
+        """.trimMargin().lines(),
+        """
+            |          ░░    ░░          
+            |         ▒▒▓▓  ▓▓▒▒         
+            |        ░▓██▒  ▒██▓░        
+            |       ░▓████░░████▓░       
+            |       ▒████████████▒       
+            |      ░██████████████░      
+            |      ▒████▒░░▒████▒      
+            |      ░███▓░~~░▓███░      
+            |       ▒██▒░^^░▒██▒       
+            |       ░█▓░*~~*░▓█░       
+            |        ▒▒░^~~^░▒▒        
+            |       ░█░░░░░░░░█░       
+            |     ░███░░████░░███░     
+            |   ░█████░░░░░░░░█████░   
+            |  ░████████████████████░  
+            |         ░░▒▒▒▒░░         
+        """.trimMargin().lines(),
+    )
+
+    private fun px(ch: Char, fg: CPColor) = CPPixel(ch, fg, Option.empty(), 0)
+
+    private fun fireColor(frame: Int, row: Int, col: Int, ch: Char): CPColor {
+        val pulse = (sin(frame * 0.18 + row * 0.4 + col * 0.15) * 0.5 + 0.5).toFloat()
+        val hot = when (ch) {
+            '█', '▓' -> Triple(255, 200, 80)
+            '▒' -> Triple(255, 120, 40)
+            '░' -> Triple(200, 80, 30)
+            '*', '^' -> Triple(255, 255, 160)
+            '~' -> Triple(255, 180, 60)
+            else -> Triple(180, 90, 40)
+        }
+        val dim = 0.55f + 0.45f * pulse
+        return CPColor(
+            (hot.first * dim).toInt().coerceIn(0, 255),
+            (hot.second * dim).toInt().coerceIn(0, 255),
+            (hot.third * dim).toInt().coerceIn(0, 255),
+            "cf"
+        )
+    }
+
+    fun draw(canv: CPCanvas, frame: Int, originX: Int, originY: Int, z: Int) {
+        val idx = frame.mod(frames.size)
+        val art = frames[idx]
+        for ((row, line) in art.withIndex()) {
+            for ((col, ch) in line.withIndex()) {
+                if (ch == ' ') continue
+                val c = fireColor(frame, row, col, ch)
+                canv.drawPixel(px(ch, c), originX + col, originY + row, z)
+            }
+        }
+    }
+
+    fun width(): Int = frames.firstOrNull()?.maxOfOrNull { it.length } ?: 0
+    fun height(): Int = frames.firstOrNull()?.size ?: 0
+}

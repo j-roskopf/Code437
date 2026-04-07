@@ -1,0 +1,82 @@
+package com.cardgame
+
+import com.cardgame.platform.EmutermFullscreen
+import com.cardgame.scene.GameOverScene
+import com.cardgame.scene.InventoryScene
+import com.cardgame.scene.LevelCompleteScene
+import com.cardgame.scene.LevelSelectScene
+import com.cardgame.scene.CharacterSelectScene
+import com.cardgame.scene.MenuScene
+import com.cardgame.scene.QuestScene
+import com.cardgame.scene.RestScene
+import com.cardgame.scene.RunSummaryScene
+import org.cosplay.*
+import scala.Option
+
+private fun wantsWindowed(args: Array<String>): Boolean =
+    args.any { it == "windowed" || it == "--windowed" }
+
+private fun disablesFullscreenHook(args: Array<String>): Boolean =
+    args.any { it == "--no-fullscreen-hook" } ||
+        System.getenv("COSPLAY_FULLSCREEN_HOOK") == "0" ||
+        System.getProperty("COSPLAY_FULLSCREEN_HOOK") == "0"
+
+private fun wantsFullscreenHook(args: Array<String>): Boolean =
+    !disablesFullscreenHook(args)
+
+private fun resolvedEmutermFontSize(): String =
+    System.getenv("COSPLAY_EMUTERM_FONT_SIZE")
+        ?: System.getProperty("COSPLAY_EMUTERM_FONT_SIZE")
+        ?: "12"
+
+/**
+ * Emuterm initial character grid. Tuned for 1920×1080 with default font size 12 (see Gradle run env).
+ * CosPlay clamps oversized windows to ~80% of the monitor ([CPEmuTerminal.safeDim]).
+ *
+ * Pass `windowed` or `--windowed` for the built-in default (100×50).
+ */
+private fun emuInitDim(args: Array<String>): Option<CPDim> =
+    if (wantsWindowed(args)) Option.empty()
+    else Option.apply(CPDim.apply(128, 58))
+
+fun main(args: Array<String>) {
+    // Keep packaged runs visually consistent with local dev unless explicitly overridden.
+    if (System.getProperty("COSPLAY_EMUTERM_FONT_SIZE").isNullOrBlank()) {
+        System.setProperty("COSPLAY_EMUTERM_FONT_SIZE", resolvedEmutermFontSize())
+    }
+    val emuTerm = System.console() == null || args.contains("emuterm")
+
+    val gameInfo = CPGameInfo(
+        "code-437",
+        "Code 437",
+        "1.0.0",
+        emuInitDim(args),
+        CPColor(20, 20, 35, "bg"),
+        Option.empty()
+    )
+
+    CPEngine.init(gameInfo, emuTerm)
+
+    if (emuTerm && !wantsWindowed(args) && wantsFullscreenHook(args)) {
+        EmutermFullscreen.startWatcher("Code 437")
+    }
+
+    try {
+        val scenes = scalaSeqOf(
+            MenuScene.create(),
+            CharacterSelectScene.create(),
+            LevelSelectScene.create(),
+            LevelCompleteScene.create(),
+            QuestScene.create(),
+            RestScene.create(),
+            RunSummaryScene.create(),
+            GameOverScene.create(),
+            InventoryScene.create()
+        )
+        CPEngine.startGame("menu", scenes)
+    } finally {
+        CPEngine.dispose()
+    }
+    // CosPlay/JavaFX may leave non-daemon threads alive after exitGame(); without this, `./gradlew run` never returns.
+    System.exit(0)
+}

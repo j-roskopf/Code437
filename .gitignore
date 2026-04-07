@@ -1,0 +1,31 @@
+# Gradle / Kotlin build outputs
+.gradle/
+build/
+out/
+target/
+
+# IntelliJ IDEA / JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# VS Code / Cursor local settings
+.vscode/
+.cursor/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs / temp files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# Local environment overrides
+.env
+.env.*
+
