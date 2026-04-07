@@ -18,12 +18,12 @@ jobs:
       matrix:
         include:
           - label: macOS Intel (dmg)
-            runs_on: macos-13
+            runs_on: macos-15-intel
             installer_type: dmg
             artifact_glob: build/jpackage/*.dmg
             artifact_name: code437-macos-intel-dmg
           - label: macOS Apple Silicon (dmg)
-            runs_on: macos-14
+            runs_on: macos-15
             installer_type: dmg
             artifact_glob: build/jpackage/*.dmg
             artifact_name: code437-macos-apple-silicon-dmg
