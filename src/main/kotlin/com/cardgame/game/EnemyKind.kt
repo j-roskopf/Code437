@@ -13,4 +13,12 @@ enum class EnemyKind(val displayName: String) {
     SPIDER("Spider"),
     RAT("Rat"),
     SKELETON("Skeleton"),
+    KING("King"),
+    QUEEN("Queen"),
+    GARGOYLE("Gargoyle"),
+    OWLBEAR("Owlbear"),
+    GOLEM("Golem"),
+    DEMON("Demon"),
+    ROBOT("Robot"),
+    EVERYTHING("Everything"),
 }

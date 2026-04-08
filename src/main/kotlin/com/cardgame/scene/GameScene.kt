@@ -954,7 +954,8 @@ object GameScene {
                             item.collected = true
                             GameState.pendingQuestOffer = QuestSystem.randomOffer(
                                 excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
-                                completedQuestIds = GameState.completedQuestIds()
+                                completedQuestIds = GameState.completedQuestIds(),
+                                currentLevel = GameState.currentLevel,
                             )
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)

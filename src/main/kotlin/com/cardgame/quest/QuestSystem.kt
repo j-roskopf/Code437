@@ -2,6 +2,7 @@ package com.cardgame.quest
 
 import com.cardgame.game.EnemyKind
 import com.cardgame.game.ItemType
+import com.cardgame.game.LevelConfig
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -93,14 +94,51 @@ object QuestSystem {
             targetCount = 2,
             rewardGold = 36
         ),
+        QuestTemplate(
+            id = "goblin_trouble",
+            title = "Goblin Trouble",
+            description = "Defeat 3 goblins.",
+            targetType = QuestTargetType.KILL_KIND,
+            targetKind = EnemyKind.GOBLIN,
+            targetCount = 3,
+            rewardGold = 38
+        ),
+        QuestTemplate(
+            id = "imp_pest",
+            title = "Imp Pest",
+            description = "Defeat 3 imps.",
+            targetType = QuestTargetType.KILL_KIND,
+            targetKind = EnemyKind.IMP,
+            targetCount = 3,
+            rewardGold = 38
+        ),
     )
 
+    /**
+     * Picks a random quest offer. [KILL_KIND] templates are only offered when their [QuestTemplate.targetKind]
+     * actually spawns on [currentLevel], so the quest can be completed on this floor without backtracking.
+     */
     fun randomOffer(
         excludeQuestIds: Set<String> = emptySet(),
-        completedQuestIds: Set<String> = emptySet()
+        completedQuestIds: Set<String> = emptySet(),
+        currentLevel: Int = 1,
     ): QuestTemplate? {
         val pool = templates.filter { it.id !in excludeQuestIds && it.id !in completedQuestIds }
-        return if (pool.isEmpty()) null else pool.random()
+        if (pool.isEmpty()) return null
+        val onFloor = LevelConfig.enemyKindsForLevel(currentLevel).toSet()
+        val levelFiltered = pool.filter { t ->
+            when (t.targetType) {
+                QuestTargetType.KILL_KIND -> {
+                    val k = t.targetKind ?: return@filter false
+                    k in onFloor
+                }
+                else -> true
+            }
+        }
+        val effective =
+            if (levelFiltered.isNotEmpty()) levelFiltered
+            else pool.filter { it.targetType != QuestTargetType.KILL_KIND }
+        return if (effective.isEmpty()) null else effective.random()
     }
 
     /**

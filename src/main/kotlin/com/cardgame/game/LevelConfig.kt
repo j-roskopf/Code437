@@ -41,11 +41,18 @@ object LevelConfig {
             1 -> listOf(
                 EnemyKind.SLIME,
                 EnemyKind.BAT,
-                EnemyKind.GHOST,
-                EnemyKind.SPIDER,
                 EnemyKind.RAT,
-                EnemyKind.SKELETON,
+                EnemyKind.SPIDER,
             )
+            2 -> listOf(EnemyKind.SKELETON, EnemyKind.GHOST)
+            3 -> listOf(EnemyKind.GOBLIN, EnemyKind.IMP)
+            4 -> listOf(EnemyKind.KING, EnemyKind.QUEEN)
+            5 -> listOf(EnemyKind.GARGOYLE)
+            6 -> listOf(EnemyKind.OWLBEAR)
+            7 -> listOf(EnemyKind.GOLEM)
+            8 -> listOf(EnemyKind.DEMON)
+            9 -> listOf(EnemyKind.ROBOT)
+            10 -> listOf(EnemyKind.EVERYTHING)
             else -> listOf(EnemyKind.GOBLIN, EnemyKind.IMP)
         }
     }

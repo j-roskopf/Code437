@@ -2,6 +2,8 @@ package com.cardgame.quest
 
 import com.cardgame.game.EnemyKind
 import com.cardgame.game.GameState
+import com.cardgame.game.LevelConfig
+import com.cardgame.quest.QuestTargetType
 import com.cardgame.testsupport.TestFixtures.withFreshState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -67,9 +69,48 @@ class QuestProgressionTest {
 
         val offer = QuestSystem.randomOffer(
             excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
-            completedQuestIds = GameState.completedQuestIds()
+            completedQuestIds = GameState.completedQuestIds(),
+            currentLevel = GameState.currentLevel,
         )
         assertNotNull(offer)
         assertFalse(offer.id == "rat_hunter")
+    }
+
+    @Test
+    fun randomOffer_killKindOnlyTargetsEnemiesOnCurrentFloor() = withFreshState {
+        GameState.resetForLevel(2)
+        val onFloor = LevelConfig.enemyKindsForLevel(2).toSet()
+        repeat(200) {
+            val o = QuestSystem.randomOffer(
+                excludeQuestIds = emptySet(),
+                completedQuestIds = emptySet(),
+                currentLevel = 2,
+            )
+            assertNotNull(o)
+            if (o.targetType == QuestTargetType.KILL_KIND) {
+                assertTrue(
+                    o.targetKind in onFloor,
+                    "${o.id} should only hunt enemies that spawn on floor 2, got ${o.targetKind}"
+                )
+            }
+        }
+    }
+
+    @Test
+    fun randomOffer_level3_neverOffersRatSlimeOrGhostKillQuests() = withFreshState {
+        GameState.resetForLevel(3)
+        val forbidden = setOf("rat_hunter", "slime_cleanup", "haunted_clearout")
+        repeat(300) {
+            val o = QuestSystem.randomOffer(
+                excludeQuestIds = emptySet(),
+                completedQuestIds = emptySet(),
+                currentLevel = 3,
+            )
+            assertNotNull(o)
+            assertFalse(o.id in forbidden, "got ${o.id} on floor 3")
+            if (o.targetType == QuestTargetType.KILL_KIND) {
+                assertTrue(o.targetKind in setOf(EnemyKind.GOBLIN, EnemyKind.IMP), o.id)
+            }
+        }
     }
 }
