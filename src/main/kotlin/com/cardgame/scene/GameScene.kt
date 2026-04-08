@@ -74,6 +74,7 @@ object GameScene {
 
     internal enum class PostMoveSceneRoute {
         NONE,
+        MINIGAMES,
         SHOP,
         LEVEL_COMPLETE,
     }
@@ -190,9 +191,11 @@ object GameScene {
 
     internal fun resolvePostMoveSceneRoute(
         moved: Boolean,
+        onGamblingTile: Boolean,
         onShopTile: Boolean,
         reachedLevelTarget: Boolean
     ): PostMoveSceneRoute = when {
+        moved && onGamblingTile -> PostMoveSceneRoute.MINIGAMES
         moved && onShopTile -> PostMoveSceneRoute.SHOP
         reachedLevelTarget -> PostMoveSceneRoute.LEVEL_COMPLETE
         else -> PostMoveSceneRoute.NONE
@@ -742,7 +745,7 @@ object GameScene {
                         item.type == ItemType.WALL -> "BRK ${item.wallHp.coerceAtLeast(1)}"
                         item.type == ItemType.QUEST -> "STEP"
                         item.type == ItemType.REST -> "HEAL"
-                        item.type == ItemType.SHOP -> "STEP"
+                        item.type == ItemType.SHOP || item.type == ItemType.GAMBLING -> "STEP"
                         item.type.equipmentSlot() != null -> "EQUIP"
                         else -> "+${item.value}"
                     }
@@ -945,7 +948,7 @@ object GameScene {
                             confetti.spawn(newX, newY)
                             continue
                         }
-                        if (item.type == ItemType.CHEST || item.type == ItemType.SHOP) continue
+                        if (item.type == ItemType.CHEST || item.type == ItemType.SHOP || item.type == ItemType.GAMBLING) continue
                         if (item.type == ItemType.SPIKES || item.type == ItemType.BOMB || item.type == ItemType.WALL) continue
                         if (item.type == ItemType.QUEST) {
                             item.collected = true
@@ -1053,6 +1056,10 @@ object GameScene {
                     if (GameState.gameOver) return
                 }
 
+                val onGamblingTile = postMove.shouldCheckShop && items.any {
+                    it.type == ItemType.GAMBLING && !it.collected &&
+                        it.gridX == GameState.playerGridX && it.gridY == GameState.playerGridY
+                }
                 val onShopTile = postMove.shouldCheckShop && items.any {
                     it.type == ItemType.SHOP && !it.collected &&
                         it.gridX == GameState.playerGridX && it.gridY == GameState.playerGridY
@@ -1060,7 +1067,12 @@ object GameScene {
                 val reachedLevelTarget =
                     postMove.shouldCheckLevelComplete &&
                         GameState.score >= LevelConfig.targetScore(GameState.currentLevel)
-                when (resolvePostMoveSceneRoute(postMove.moved, onShopTile, reachedLevelTarget)) {
+                when (resolvePostMoveSceneRoute(postMove.moved, onGamblingTile, onShopTile, reachedLevelTarget)) {
+                    PostMoveSceneRoute.MINIGAMES -> {
+                        GameState.minigamesReturnScene = "game"
+                        ctx.switchScene("minigames", false)
+                        return
+                    }
                     PostMoveSceneRoute.SHOP -> {
                         GameState.shopReturnScene = "game"
                         kotlin.runCatching { ctx.deleteScene("shop") }

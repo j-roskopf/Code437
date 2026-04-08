@@ -108,6 +108,9 @@ object GameState {
     /** Where [ShopScene] goes on Back: `"menu"` or `"levelcomplete"`. */
     var shopReturnScene: String = "menu"
 
+    /** Where [MiniGamesHubScene] goes on Back: `"menu"` or `"game"` (from gambling tile). */
+    var minigamesReturnScene: String = "menu"
+
     /** Where [InventoryScene] returns: `"menu"` or `"game"`. */
     var inventoryReturnScene: String = "menu"
 
@@ -208,6 +211,7 @@ object GameState {
         keysSilver = 0
         keysGold = 0
         shopReturnScene = "menu"
+        minigamesReturnScene = "menu"
         inventoryReturnScene = "menu"
         gameOver = false
         playerGridX = 0
@@ -373,6 +377,8 @@ enum class ItemType(val label: String) {
     KEY("Key"),
     CHEST("Chest"),
     SHOP("Shop"),
+    /** Opens the mini games hub (slots / Sic Bo). */
+    GAMBLING("Gambling"),
     /** Instant death when stepped on. */
     SPIKES("Spikes"),
     /** Counts down each player move; at 0 explodes orthogonally. */
@@ -515,7 +521,8 @@ object LevelGenerator {
     }
 
     /**
-     * @param existingItems current grid items — if any non-collected [ItemType.SHOP] exists, another shop will not be rolled.
+     * @param existingItems current grid items — if any non-collected [ItemType.SHOP] / [ItemType.GAMBLING] exists,
+     * another of that kind will not be rolled. [ItemType.GAMBLING] is never rolled while [money] is 0.
      */
     fun randomItemAt(
         gridX: Int,
@@ -524,9 +531,12 @@ object LevelGenerator {
         existingEnemies: List<EnemyCard> = emptyList()
     ): GridItem {
         val shopOnGrid = existingItems.any { !it.collected && it.type == ItemType.SHOP }
-        val pool =
-            if (shopOnGrid) ItemType.entries.filter { it != ItemType.SHOP }
-            else ItemType.entries.toList()
+        val gamblingOnGrid = existingItems.any { !it.collected && it.type == ItemType.GAMBLING }
+        val pool = ItemType.entries.filter { type ->
+            !(shopOnGrid && type == ItemType.SHOP) &&
+                !(gamblingOnGrid && type == ItemType.GAMBLING) &&
+                !(type == ItemType.GAMBLING && GameState.money <= 0)
+        }
         val nonHazardPool = pool.filter { it != ItemType.SPIKES && it != ItemType.BOMB }
         val hazardInPool = listOf(ItemType.SPIKES, ItemType.BOMB).filter { it in pool }
         val type = when {
@@ -561,6 +571,7 @@ object LevelGenerator {
                 KeyTier.GOLD -> Random.nextInt(38, 76)
             }
             ItemType.SHOP -> 0
+            ItemType.GAMBLING -> 0
             ItemType.SPIKES -> 0
             ItemType.BOMB -> 0
             ItemType.WALL -> 0
@@ -596,6 +607,7 @@ object LevelGenerator {
         val secretEligible =
             type != ItemType.CHEST &&
                 type != ItemType.SHOP &&
+                type != ItemType.GAMBLING &&
                 type != ItemType.SPIKES &&
                 type != ItemType.BOMB &&
                 type != ItemType.WALL &&

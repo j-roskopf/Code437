@@ -7,6 +7,25 @@ import kotlin.test.assertTrue
 
 class LevelGeneratorTest {
     @Test
+    fun gambling_neverRollsWithZeroMoney() = withFreshState {
+        repeat(800) {
+            val item = LevelGenerator.randomItemAt(1, 1)
+            assertFalse(item.type == ItemType.GAMBLING)
+        }
+    }
+
+    @Test
+    fun gambling_canRollWhenPlayerHasGold() = withFreshState {
+        GameState.addMoney(100)
+        var saw = false
+        repeat(4000) {
+            val item = LevelGenerator.randomItemAt(1, 1)
+            if (item.type == ItemType.GAMBLING) saw = true
+        }
+        assertTrue(saw, "Expected GAMBLING to appear at least once with gold in pool")
+    }
+
+    @Test
     fun hazardRate_isLowButNonZero() = withFreshState {
         val samples = 4000
         var hazards = 0

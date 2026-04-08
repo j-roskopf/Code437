@@ -36,6 +36,7 @@ object CardArt {
         ItemType.KEY to AsciiArt.KEY_ARTS,
         ItemType.CHEST to AsciiArt.CHEST_ARTS,
         ItemType.SHOP to listOf(AsciiArt.SHOP_STALL),
+        ItemType.GAMBLING to listOf(AsciiArt.GAMBLING_TILE),
         ItemType.SPIKES to listOf(AsciiArt.HAZARD_SPIKES),
         ItemType.BOMB to listOf(AsciiArt.HAZARD_BOMB),
         ItemType.WALL to listOf(AsciiArt.HAZARD_WALL),
@@ -77,6 +78,7 @@ object CardArt {
         ItemType.LEGGINGS -> CPColor(125, 130, 155, "leggings-equip")
         ItemType.BOOTS_ARMOR -> CPColor(120, 105, 95, "boots-equip")
         ItemType.SHOP -> CPColor.C_GOLD1()
+        ItemType.GAMBLING -> CPColor(200, 140, 255, "gambling")
         ItemType.SPIKES -> CPColor(160, 40, 160, "spikes")
         ItemType.BOMB -> CPColor.C_ORANGE_RED1()
         ItemType.WALL -> CPColor.C_GREY70()

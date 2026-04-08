@@ -12,6 +12,7 @@ object MenuScene {
     private val KEY_1 = kbKey("KEY_1")
     private val KEY_2 = kbKey("KEY_2")
     private val KEY_3 = kbKey("KEY_3")
+    private val KEY_4 = kbKey("KEY_4")
     private val KEY_Q = kbKey("KEY_LO_Q")
 
     fun create(): CPScene {
@@ -26,6 +27,7 @@ object MenuScene {
                     "[1]  New Game (Level 1)" to CPColor.C_STEEL_BLUE1(),
                     "[2]  Level Select" to CPColor.C_STEEL_BLUE1(),
                     "[3]  Character" to CPColor.C_STEEL_BLUE1(),
+                    "[4]  Mini Games" to CPColor.C_STEEL_BLUE1(),
                     "[Q]  Quit" to CPColor.C_GREY50(),
                 )
                 val allLines = listOf(title) + options.map { it.first }
@@ -62,6 +64,10 @@ object MenuScene {
                     KEY_3 -> {
                         GameState.characterSelectCursor = GameState.selectedPlayerCharacter.ordinal
                         ctx.switchScene("characterselect", false)
+                    }
+                    KEY_4 -> {
+                        GameState.minigamesReturnScene = "menu"
+                        ctx.switchScene("minigames", false)
                     }
                     KEY_Q -> ctx.exitGame()
                     else -> {}

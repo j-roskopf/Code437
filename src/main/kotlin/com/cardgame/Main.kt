@@ -7,6 +7,7 @@ import com.cardgame.scene.LevelCompleteScene
 import com.cardgame.scene.LevelSelectScene
 import com.cardgame.scene.CharacterSelectScene
 import com.cardgame.scene.MenuScene
+import com.cardgame.scene.MiniGamesHubScene
 import com.cardgame.scene.QuestScene
 import com.cardgame.scene.RestScene
 import com.cardgame.scene.RunSummaryScene
@@ -64,6 +65,7 @@ fun main(args: Array<String>) {
     try {
         val scenes = scalaSeqOf(
             MenuScene.create(),
+            MiniGamesHubScene.create(),
             CharacterSelectScene.create(),
             LevelSelectScene.create(),
             LevelCompleteScene.create(),

@@ -182,9 +182,21 @@ class GameScenePhase2Test {
     }
 
     @Test
+    fun resolvePostMoveSceneRoute_prioritizesGamblingOverShopAndLevelComplete() {
+        val route = GameScene.resolvePostMoveSceneRoute(
+            moved = true,
+            onGamblingTile = true,
+            onShopTile = true,
+            reachedLevelTarget = true
+        )
+        assertEquals(GameScene.PostMoveSceneRoute.MINIGAMES, route)
+    }
+
+    @Test
     fun resolvePostMoveSceneRoute_prioritizesShopOverLevelComplete() {
         val route = GameScene.resolvePostMoveSceneRoute(
             moved = true,
+            onGamblingTile = false,
             onShopTile = true,
             reachedLevelTarget = true
         )
@@ -195,6 +207,7 @@ class GameScenePhase2Test {
     fun resolvePostMoveSceneRoute_levelCompleteWhenNoShop() {
         val route = GameScene.resolvePostMoveSceneRoute(
             moved = true,
+            onGamblingTile = false,
             onShopTile = false,
             reachedLevelTarget = true
         )
@@ -205,6 +218,7 @@ class GameScenePhase2Test {
     fun resolvePostMoveSceneRoute_noneWhenNoGatesTriggered() {
         val route = GameScene.resolvePostMoveSceneRoute(
             moved = false,
+            onGamblingTile = false,
             onShopTile = false,
             reachedLevelTarget = false
         )
