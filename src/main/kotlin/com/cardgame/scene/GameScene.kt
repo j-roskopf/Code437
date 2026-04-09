@@ -190,6 +190,32 @@ object GameScene {
         )
     }
 
+    /**
+     * Repacks the column/row after the player leaves a cell and ticks bombs — same as the main move tail.
+     * Must run whenever the player actually moved but we leave the scene before the normal [planPostMoveFlow] block
+     * (quest offer, rest, secret room); otherwise vacated slots never fill with new cards.
+     * @return true if bombs ended the run ([GameState.gameOver]); caller should return without switching scenes.
+     */
+    private fun applyPostMoveSlidingAndBombs(
+        ctx: CPSceneObjectContext,
+        postMove: PostMovePlan,
+        prevX: Int,
+        prevY: Int,
+    ): Boolean {
+        if (postMove.moved) {
+            when (postMove.slideKind) {
+                SlideKind.COLUMN_UP -> slideColumnUpAfterPlayerLeft(prevX, prevY)
+                SlideKind.ROW_LEFT -> slideRowLeftAfterPlayerLeft(prevY, prevX)
+                SlideKind.NONE -> {}
+            }
+        }
+        if (postMove.shouldTickBombs) {
+            tickBombs(ctx)
+            if (GameState.gameOver) return true
+        }
+        return false
+    }
+
     internal fun resolvePostMoveSceneRoute(
         moved: Boolean,
         onGamblingTile: Boolean,
@@ -1218,6 +1244,8 @@ object GameScene {
                     itemFlash.flash(newX, newY)
                     confetti.spawn(newX, newY)
                     RunStats.recordSecretRoom()
+                    val pmSecret = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
+                    if (applyPostMoveSlidingAndBombs(ctx, pmSecret, prevX, prevY)) return
                     kotlin.runCatching { ctx.deleteScene("secretroom") }
                     ctx.addScene(SecretRoomScene.create(), false, false, false)
                     ctx.switchScene("secretroom", false)
@@ -1246,6 +1274,8 @@ object GameScene {
                             )
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
+                            val pmQuest = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
+                            if (applyPostMoveSlidingAndBombs(ctx, pmQuest, prevX, prevY)) return
                             ctx.switchScene("quest", false)
                             return
                         }
@@ -1253,6 +1283,8 @@ object GameScene {
                             item.collected = true
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
+                            val pmRest = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
+                            if (applyPostMoveSlidingAndBombs(ctx, pmRest, prevX, prevY)) return
                             kotlin.runCatching { ctx.deleteScene("rest") }
                             ctx.addScene(RestScene.create(), false, false, false)
                             ctx.switchScene("rest", false)
@@ -1282,6 +1314,8 @@ object GameScene {
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
                             RunStats.recordSecretRoom()
+                            val pmSecE = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
+                            if (applyPostMoveSlidingAndBombs(ctx, pmSecE, prevX, prevY)) return
                             kotlin.runCatching { ctx.deleteScene("secretroom") }
                             ctx.addScene(SecretRoomScene.create(), false, false, false)
                             ctx.switchScene("secretroom", false)
@@ -1331,18 +1365,7 @@ object GameScene {
                 val px = GameState.playerGridX
                 val py = GameState.playerGridY
                 val postMove = planPostMoveFlow(prevX, prevY, px, py, dx, dy)
-                if (postMove.moved) {
-                    when (postMove.slideKind) {
-                        SlideKind.COLUMN_UP -> slideColumnUpAfterPlayerLeft(prevX, prevY)
-                        SlideKind.ROW_LEFT -> slideRowLeftAfterPlayerLeft(prevY, prevX)
-                        SlideKind.NONE -> {}
-                    }
-                }
-
-                if (postMove.shouldTickBombs) {
-                    tickBombs(ctx)
-                    if (GameState.gameOver) return
-                }
+                if (applyPostMoveSlidingAndBombs(ctx, postMove, prevX, prevY)) return
 
                 val onGamblingTile = postMove.shouldCheckShop && items.any {
                     it.type == ItemType.GAMBLING && !it.collected &&

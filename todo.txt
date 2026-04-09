@@ -2,3 +2,9 @@ music
 seed — shareable seed for same dungeon layout
 web?
 balancing
+
+player builds persistent deck
+    - shop sells cards and items
+    - shop appears at the end of a level
+each floor is a new deck - each floor's deck is pre-determined?
+equippable item to see what's coming nect?
