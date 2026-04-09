@@ -40,10 +40,10 @@ application {
 
 tasks.withType<JavaExec> {
     standardInput = System.`in`
-    // Slightly smaller monospace cells so the 4×4 board fits 1080p; override per-machine if needed.
+    // Monospace cell size in px scales with this; 11 keeps a 205×72 emuterm window within ~1920×1080 on typical fonts.
     environment(
         "COSPLAY_EMUTERM_FONT_SIZE",
-        System.getenv("COSPLAY_EMUTERM_FONT_SIZE") ?: "12"
+        System.getenv("COSPLAY_EMUTERM_FONT_SIZE") ?: "11"
     )
 }
 
@@ -86,7 +86,7 @@ tasks.register<Exec>("packageNative") {
         val mainJar = tasks.named<Jar>("jar").get().archiveFileName.get()
         val jvmArgs = listOf(
             "-Xmx512m",
-            "-DCOSPLAY_EMUTERM_FONT_SIZE=12",
+            "-DCOSPLAY_EMUTERM_FONT_SIZE=11",
             "-DCOSPLAY_FULLSCREEN_HOOK=1",
             "--add-opens=javafx.graphics/com.sun.javafx.application=ALL-UNNAMED",
             "--add-opens=javafx.graphics/com.sun.javafx.tk=ALL-UNNAMED",

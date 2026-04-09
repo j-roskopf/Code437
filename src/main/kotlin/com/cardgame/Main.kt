@@ -6,6 +6,7 @@ import com.cardgame.scene.InventoryScene
 import com.cardgame.scene.LevelCompleteScene
 import com.cardgame.scene.LevelSelectScene
 import com.cardgame.scene.CharacterSelectScene
+import com.cardgame.game.GridConfig
 import com.cardgame.scene.MenuScene
 import com.cardgame.scene.MiniGamesHubScene
 import com.cardgame.scene.QuestScene
@@ -28,17 +29,18 @@ private fun wantsFullscreenHook(args: Array<String>): Boolean =
 private fun resolvedEmutermFontSize(): String =
     System.getenv("COSPLAY_EMUTERM_FONT_SIZE")
         ?: System.getProperty("COSPLAY_EMUTERM_FONT_SIZE")
-        ?: "12"
+        ?: "11"
 
 /**
- * Emuterm initial character grid. Tuned for 1920×1080 with default font size 12 (see Gradle run env).
- * CosPlay clamps oversized windows to ~80% of the monitor ([CPEmuTerminal.safeDim]).
+ * Emuterm initial character grid: must cover the main board ([GridConfig.MIN_EMUTERM_*]) so the grid
+ * and left HUD are not clipped. Pixel size still comes from font metrics; default font targets 1920×1080
+ * (see Gradle `COSPLAY_EMUTERM_FONT_SIZE`).
  *
- * Pass `windowed` or `--windowed` for the built-in default (100×50).
+ * Pass `windowed` or `--windowed` for CosPlay’s built-in default (100×50).
  */
 private fun emuInitDim(args: Array<String>): Option<CPDim> =
     if (wantsWindowed(args)) Option.empty()
-    else Option.apply(CPDim.apply(128, 58))
+    else Option.apply(CPDim.apply(GridConfig.MIN_EMUTERM_COLS, GridConfig.MIN_EMUTERM_ROWS))
 
 fun main(args: Array<String>) {
     // Keep packaged runs visually consistent with local dev unless explicitly overridden.

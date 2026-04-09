@@ -568,7 +568,9 @@ object GameScene {
         val bottomRow = sy + h - 3
         val maxRows = bottomRow - topRow + 1
         val lc = lineCount.coerceIn(1, maxRows)
-        return topRow + (maxRows - lc) / 2
+        val slack = maxRows - lc
+        // Put odd slack above the art so sprites don’t sit high with empty space under them.
+        return topRow + (slack + 1) / 2
     }
 
     /** Draw a card border (box-drawing chars). */

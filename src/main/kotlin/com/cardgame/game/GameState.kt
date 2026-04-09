@@ -450,8 +450,8 @@ object GridConfig {
     const val ROWS = 3
     /** Card size in CosPlay canvas character cells (place to draw ASCII / future art). */
     const val CELL_WIDTH = 34
-    /** Shorter than width so tiles are not overly tall vs sprites; keep ≥20 so 16-line hero art fits. */
-    const val CELL_HEIGHT = 24
+    /** Shorter than width so tiles are not overly tall vs sprites; interior art uses [CELL_HEIGHT]−4 rows (≥18 fits 16-line hero art). */
+    const val CELL_HEIGHT = 22
 
     /** Total character-cell width/height of the grid (without offsets). */
     val GRID_TOTAL_WIDTH get() = COLS * CELL_WIDTH
@@ -462,6 +462,14 @@ object GridConfig {
     const val HUD_LINE_COUNT = 10
     /** Screen columns between HUD text and the grid (avoids overlap). */
     const val HUD_GAP_BEFORE_GRID = 1
+
+    /**
+     * Minimum CosPlay emuterm canvas for the main game: right-aligned grid plus the left HUD column
+     * ([CELL_WIDTH] chars) and [HUD_GAP_BEFORE_GRID]. Sized for ~1920×1080 with default font in Gradle;
+     * set `COSPLAY_EMUTERM_FONT_SIZE` lower if the window still overflows (HiDPI / large system fonts).
+     */
+    const val MIN_EMUTERM_COLS = COLS * CELL_WIDTH + HUD_GAP_BEFORE_GRID + CELL_WIDTH
+    const val MIN_EMUTERM_ROWS = ROWS * CELL_HEIGHT
 
     // Dynamic offsets — grid is right-aligned; vertically centered. HUD uses columns left of [offsetX].
     var offsetX = 4
@@ -475,7 +483,9 @@ object GridConfig {
      */
     fun updateOffsets(canvasWidth: Int, canvasHeight: Int) {
         offsetX = (canvasWidth - GRID_TOTAL_WIDTH).coerceAtLeast(0)
-        offsetY = ((canvasHeight - GRID_TOTAL_HEIGHT) / 2).coerceAtLeast(0)
+        val slackY = (canvasHeight - GRID_TOTAL_HEIGHT).coerceAtLeast(0)
+        // Integer centering leaves odd slack on the bottom; bias one row upward so margins match.
+        offsetY = (slackY + 1) / 2
     }
 
     fun cellScreenX(gridX: Int) = offsetX + gridX * CELL_WIDTH

@@ -60,7 +60,8 @@ object InventoryScene {
         val bottomRow = sy + h - 3
         val maxRows = bottomRow - topRow + 1
         val lc = lineCount.coerceIn(1, maxRows)
-        return topRow + (maxRows - lc) / 2
+        val slack = maxRows - lc
+        return topRow + (slack + 1) / 2
     }
 
     private fun drawArt(canv: CPCanvas, art: List<String>, startX: Int, startY: Int, z: Int, fg: CPColor) {
