@@ -33,7 +33,7 @@ private fun resolvedEmutermFontSize(): String =
 
 /**
  * Emuterm initial character grid: must cover the main board ([GridConfig.MIN_EMUTERM_*]) so the grid
- * and left HUD are not clipped. Pixel size still comes from font metrics; default font targets 1920×1080
+ * and side HUD margins are not clipped. Pixel size still comes from font metrics; default font targets 1920×1080
  * (see Gradle `COSPLAY_EMUTERM_FONT_SIZE`).
  *
  * Pass `windowed` or `--windowed` for CosPlay’s built-in default (100×50).

@@ -13,14 +13,17 @@ import org.cosplay.*
 import scala.Option
 
 object GameScene {
+    /** Main game HUD: left column (run meta) and right column (quests / keys / controls) each vertically centered. */
     internal data class HudLayout(
-        val hudY: Int,
-        val totalLines: Int,
-        val questStartY: Int,
-        val invRow: Int,
-        val keysRow: Int,
-        val debugRow: Int,
-        val barY: Int,
+        val leftStartY: Int,
+        val rightStartY: Int,
+        val rightQuestStartY: Int,
+        val rightInvRow: Int,
+        val rightKeysRow: Int,
+        val rightDebugRow: Int,
+        val rightBarY: Int,
+        val leftLineCount: Int,
+        val rightLineCount: Int,
     )
 
     internal data class WallChipResult(
@@ -98,22 +101,29 @@ object GameScene {
     private val KEY_LEFT = kbKey("KEY_LEFT")
     private val KEY_RIGHT = kbKey("KEY_RIGHT")
 
-    internal fun computeHudLayout(canvasHeight: Int, questCount: Int): HudLayout {
-        val qc = questCount.coerceAtLeast(1)
-        val total = 9 + qc
-        val hudY = ((canvasHeight - total) / 2).coerceAtLeast(1)
-        val questStart = hudY + 5
-        val inv = questStart + qc
-        val keys = inv + 1
+    internal fun computeHudLayout(canvasHeight: Int, questLineCount: Int): HudLayout {
+        val qc = questLineCount.coerceAtLeast(1)
+        val leftLines = 5
+        val rightLines = qc + 4
+        val leftStart = hudCenteredBlockStartY(canvasHeight, leftLines)
+        val rightStart = hudCenteredBlockStartY(canvasHeight, rightLines)
         return HudLayout(
-            hudY = hudY,
-            totalLines = total,
-            questStartY = questStart,
-            invRow = inv,
-            keysRow = keys,
-            debugRow = keys + 1,
-            barY = keys + 2,
+            leftStartY = leftStart,
+            rightStartY = rightStart,
+            rightQuestStartY = rightStart,
+            rightInvRow = rightStart + qc,
+            rightKeysRow = rightStart + qc + 1,
+            rightDebugRow = rightStart + qc + 2,
+            rightBarY = rightStart + qc + 3,
+            leftLineCount = leftLines,
+            rightLineCount = rightLines,
         )
+    }
+
+    /** Vertical start row for a block of [lineCount] lines, centered on [canvasHeight] (odd slack biased up). */
+    internal fun hudCenteredBlockStartY(canvasHeight: Int, lineCount: Int): Int {
+        val slack = (canvasHeight - lineCount).coerceAtLeast(0)
+        return ((slack + 1) / 2).coerceAtLeast(1)
     }
 
     internal fun hudStatsLine(level: Int, hp: Int, atkDisplay: String, shieldDisplay: String): String =
@@ -514,29 +524,27 @@ object GameScene {
     private fun px(ch: Char, fg: CPColor, bg: CPColor): CPPixel =
         CPPixel(ch, fg, Option.apply(bg), 0)
 
-    /**
-     * Columns available left of the grid (0-based): [0, gridStartX - HUD_GAP_BEFORE_GRID).
-     * Centers [contentWidth] within that span.
-     */
-    private fun hudXCenteredInLeftMargin(gridStartX: Int, contentWidth: Int): Int {
-        val span = (gridStartX - GridConfig.HUD_GAP_BEFORE_GRID).coerceAtLeast(0)
-        if (span <= contentWidth) return 0
-        return (span - contentWidth) / 2
+    private fun leftHudSpanWidth(gridStartX: Int): Int =
+        (gridStartX - GridConfig.HUD_GAP_BEFORE_GRID).coerceAtLeast(0)
+
+    private fun rightHudStartX(gridStartX: Int): Int =
+        gridStartX + GridConfig.GRID_TOTAL_WIDTH + GridConfig.HUD_GAP_BEFORE_GRID
+
+    private fun rightHudSpanWidth(canvasWidth: Int, gridStartX: Int): Int =
+        (canvasWidth - rightHudStartX(gridStartX)).coerceAtLeast(0)
+
+    /** Horizontally center a line of length [textLen] in [spanLeft]..+[spanWidth]. */
+    private fun hudXCenteredInSpan(spanLeft: Int, spanWidth: Int, textLen: Int): Int {
+        if (spanWidth <= 0) return spanLeft
+        return spanLeft + ((spanWidth - textLen).coerceAtLeast(0) + 1) / 2
     }
 
-    /** Left edge of a column one [GridConfig.CELL_WIDTH] wide, centered in the left margin. */
-    private fun hudBlockLeftX(gridStartX: Int): Int =
-        hudXCenteredInLeftMargin(gridStartX, GridConfig.CELL_WIDTH)
-
-    private fun hudLineFit(s: String, max: Int = GridConfig.CELL_WIDTH): String {
+    private fun hudLineFit(s: String, max: Int): String {
+        if (max <= 0) return ""
         if (s.length <= max) return s
         if (max <= 1) return s.take(max)
         return s.take(max - 1) + "…"
     }
-
-    /** Center a string of length ≤ [max] inside that column starting at [blockLeft]. */
-    private fun hudXInCell(blockLeft: Int, textLen: Int, max: Int = GridConfig.CELL_WIDTH): Int =
-        blockLeft + (max - textLen) / 2
 
     /** Pixel width of item/enemy ASCII (matches [AsciiArt] lines; keeps art inside the card). */
     private val artPixelWidth = 30
@@ -1154,27 +1162,33 @@ object GameScene {
                 val h = canv.height()
                 GridConfig.updateOffsets(w, h)
                 val gx = GridConfig.offsetX
-                val questLines = GameState.questHudLines().map { hudLineFit(it) }
-                val layout = computeHudLayout(h, questLines.size)
-                val hudY = layout.hudY
+                val leftSpan = leftHudSpanWidth(gx)
+                val rightX0 = rightHudStartX(gx)
+                val rightSpan = rightHudSpanWidth(w, gx)
+                val leftMax = leftSpan.coerceAtLeast(8)
+                val rightMax = rightSpan.coerceAtLeast(8)
+
+                val questLinesRaw = GameState.questHudLines()
+                val layout = computeHudLayout(h, questLinesRaw.size)
+                val questLines = questLinesRaw.map { hudLineFit(it, rightMax) }
                 val hudZ = 15 // above grid/player (≤4) and confetti (10)
 
                 val goal = LevelConfig.targetScore(GameState.currentLevel)
-                val cw = GridConfig.CELL_WIDTH
-                val blockX = hudBlockLeftX(gx)
+                val ly = layout.leftStartY
 
-                val line1 = hudLineFit("CARD CRAWLER")
-                val loreLine = hudLineFit(LevelConfig.hudLore(GameState.currentLevel))
+                val line1 = hudLineFit("CARD CRAWLER", leftMax)
+                val loreLine = hudLineFit(LevelConfig.hudLore(GameState.currentLevel), leftMax)
                 val line2 = hudLineFit(
                     hudStatsLine(
                         level = GameState.currentLevel,
                         hp = GameState.playerHealth,
                         atkDisplay = GameState.playerAttackDisplay(),
                         shieldDisplay = GameState.playerShieldDisplay(),
-                    )
+                    ),
+                    leftMax,
                 )
-                val line3 = hudLineFit("SCORE ${GameState.score} / $goal")
-                val line4 = hudLineFit("GOLD ${GameState.money}")
+                val line3 = hudLineFit("SCORE ${GameState.score} / $goal", leftMax)
+                val line4 = hudLineFit("GOLD ${GameState.money}", leftMax)
                 val dbgSecret = run {
                     val secretItem = items.firstOrNull { !it.collected && it.secretRoom }
                     val secretEnemy = enemies.firstOrNull { !it.defeated && it.secretRoom }
@@ -1184,32 +1198,43 @@ object GameScene {
                         else -> "DBG:none"
                     }
                 }
-                val invHint = hudLineFit("I — open inventory")
+                val invHint = hudLineFit("I — open inventory", rightMax)
                 val lineControls = hudLineFit(
                     if (GameState.debugRevealSecrets) "WASD Z-dbg Q/Esc  $dbgSecret"
-                    else "WASD move  Z debug  Q/Esc quit"
+                    else "WASD move  Z debug  Q/Esc quit",
+                    rightMax,
                 )
 
                 val bg = Option.apply(BG_COLOR)
                 val blue = CPColor.C_STEEL_BLUE1()
                 val goldHud = CPColor.C_GOLD1()
-                canv.drawString(hudXInCell(blockX, line1.length), hudY, hudZ, line1, CPColor.C_GOLD1(), bg)
-                canv.drawString(hudXInCell(blockX, loreLine.length), hudY + 1, hudZ, loreLine, CPColor.C_GREY70(), bg)
-                canv.drawString(hudXInCell(blockX, line2.length), hudY + 2, hudZ, line2, blue, bg)
-                canv.drawString(hudXInCell(blockX, line3.length), hudY + 3, hudZ, line3, blue, bg)
-                canv.drawString(hudXInCell(blockX, line4.length), hudY + 4, hudZ, line4, goldHud, bg)
+                canv.drawString(hudXCenteredInSpan(0, leftSpan, line1.length), ly, hudZ, line1, CPColor.C_GOLD1(), bg)
+                canv.drawString(hudXCenteredInSpan(0, leftSpan, loreLine.length), ly + 1, hudZ, loreLine, CPColor.C_GREY70(), bg)
+                canv.drawString(hudXCenteredInSpan(0, leftSpan, line2.length), ly + 2, hudZ, line2, blue, bg)
+                canv.drawString(hudXCenteredInSpan(0, leftSpan, line3.length), ly + 3, hudZ, line3, blue, bg)
+                canv.drawString(hudXCenteredInSpan(0, leftSpan, line4.length), ly + 4, hudZ, line4, goldHud, bg)
                 val questColor = when {
                     GameState.questFlashText() != null -> CPColor.C_GOLD1()
                     else -> CPColor(165, 120, 255, "quest-hud")
                 }
-                val questStartY = layout.questStartY
+                val qy = layout.rightQuestStartY
                 for ((i, qLine) in questLines.withIndex()) {
-                    canv.drawString(hudXInCell(blockX, qLine.length), questStartY + i, hudZ, qLine, questColor, bg)
+                    canv.drawString(
+                        hudXCenteredInSpan(rightX0, rightSpan, qLine.length),
+                        qy + i,
+                        hudZ,
+                        qLine,
+                        questColor,
+                        bg,
+                    )
                 }
-                val invRow = layout.invRow
                 canv.drawString(
-                    hudXInCell(blockX, invHint.length), invRow, hudZ, invHint,
-                    CPColor.C_STEEL_BLUE1(), bg
+                    hudXCenteredInSpan(rightX0, rightSpan, invHint.length),
+                    layout.rightInvRow,
+                    hudZ,
+                    invHint,
+                    CPColor.C_STEEL_BLUE1(),
+                    bg,
                 )
 
                 val keySeg1 = "KEYS "
@@ -1217,9 +1242,9 @@ object GameScene {
                 val keySeg3 = "${GameState.keysSilver}S "
                 val keySeg4 = "${GameState.keysGold}G"
                 val keyLine = keySeg1 + keySeg2 + keySeg3 + keySeg4
-                val keyStart = hudXInCell(blockX, keyLine.length)
+                val keyStart = hudXCenteredInSpan(rightX0, rightSpan, keyLine.length)
                 var kx = keyStart
-                val keysRow = layout.keysRow
+                val keysRow = layout.rightKeysRow
                 canv.drawString(kx, keysRow, hudZ, keySeg1, CPColor.C_GREY70(), bg)
                 kx += keySeg1.length
                 canv.drawString(kx, keysRow, hudZ, keySeg2, KeyTier.BRONZE.metalColor(), bg)
@@ -1227,12 +1252,19 @@ object GameScene {
                 canv.drawString(kx, keysRow, hudZ, keySeg3, KeyTier.SILVER.metalColor(), bg)
                 kx += keySeg3.length
                 canv.drawString(kx, keysRow, hudZ, keySeg4, KeyTier.GOLD.metalColor(), bg)
-                val debugRow = layout.debugRow
-                val barY = layout.barY
-                canv.drawString(hudXInCell(blockX, lineControls.length), debugRow, hudZ, lineControls, CPColor.C_GREY50(), bg)
+                val barY = layout.rightBarY
+                canv.drawString(
+                    hudXCenteredInSpan(rightX0, rightSpan, lineControls.length),
+                    layout.rightDebugRow,
+                    hudZ,
+                    lineControls,
+                    CPColor.C_GREY50(),
+                    bg,
+                )
                 val hpPrefix = "HP "
-                val maxBar = (cw - hpPrefix.length).coerceAtLeast(8)
-                val hpStartX = hudXInCell(blockX, hpPrefix.length + maxBar)
+                val maxBar = (rightSpan - hpPrefix.length).coerceIn(8, 40)
+                val barBlockW = hpPrefix.length + maxBar
+                val hpStartX = hudXCenteredInSpan(rightX0, rightSpan, barBlockW)
                 canv.drawString(hpStartX, barY, hudZ, hpPrefix, CPColor.C_WHITE(), bg)
                 val filled = (GameState.playerHealth.coerceAtMost(30).toFloat() / 30 * maxBar).toInt()
                 val barColor = when {
@@ -1261,12 +1293,15 @@ object GameScene {
                 GameState.tickQuestHudFlash()
                 if (GameState.consumeHudQuestCelebrate()) {
                     val canv = ctx.canvas
-                    GridConfig.updateOffsets(canv.width(), canv.height())
-                    val blockX = hudBlockLeftX(GridConfig.offsetX)
-                    val centerX = blockX + GridConfig.CELL_WIDTH / 2
+                    val w = canv.width()
+                    GridConfig.updateOffsets(w, canv.height())
+                    val gx = GridConfig.offsetX
+                    val rightX0 = gx + GridConfig.GRID_TOTAL_WIDTH + GridConfig.HUD_GAP_BEFORE_GRID
+                    val rightSpan = (w - rightX0).coerceAtLeast(0)
+                    val centerX = rightX0 + (rightSpan + 1) / 2
                     val questLines = GameState.questHudLines()
                     val layout = computeHudLayout(canv.height(), questLines.size)
-                    val centerY = layout.questStartY + ((questLines.size - 1).coerceAtLeast(0) / 2)
+                    val centerY = layout.rightQuestStartY + ((questLines.size - 1).coerceAtLeast(0) / 2)
                     hudConfetti.spawnScreen(centerX, centerY)
                 }
             }

@@ -11,23 +11,28 @@ import kotlin.test.assertTrue
 class GameScenePhase2Test {
     @Test
     fun computeHudLayout_positionsRowsConsistently() {
-        val layout = GameScene.computeHudLayout(canvasHeight = 58, questCount = 1)
-        assertEquals(24, layout.hudY)
-        assertEquals(10, layout.totalLines)
-        assertEquals(layout.hudY + 5, layout.questStartY)
-        assertEquals(layout.questStartY + 1, layout.invRow)
-        assertEquals(layout.invRow + 1, layout.keysRow)
-        assertEquals(layout.keysRow + 1, layout.debugRow)
-        assertEquals(layout.keysRow + 2, layout.barY)
+        val layout = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 1)
+        assertEquals(5, layout.leftLineCount)
+        assertEquals(5, layout.rightLineCount)
+        assertEquals(27, layout.leftStartY)
+        assertEquals(27, layout.rightStartY)
+        assertEquals(layout.rightStartY, layout.rightQuestStartY)
+        assertEquals(layout.rightQuestStartY + 1, layout.rightInvRow)
+        assertEquals(layout.rightInvRow + 1, layout.rightKeysRow)
+        assertEquals(layout.rightKeysRow + 1, layout.rightDebugRow)
+        assertEquals(layout.rightKeysRow + 2, layout.rightBarY)
     }
 
     @Test
     fun computeHudLayout_expandsForMultipleQuestLines() {
-        val single = GameScene.computeHudLayout(canvasHeight = 58, questCount = 1)
-        val multi = GameScene.computeHudLayout(canvasHeight = 58, questCount = 4)
-        assertEquals(single.totalLines + 3, multi.totalLines)
-        assertTrue(multi.hudY < single.hudY, "HUD should shift upward as quest rows increase")
-        assertEquals(multi.questStartY + 4, multi.invRow)
+        val single = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 1)
+        val multi = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 4)
+        assertEquals(5, single.rightLineCount)
+        assertEquals(8, multi.rightLineCount)
+        assertTrue(multi.rightStartY < single.rightStartY, "Right column should shift up as quest rows increase")
+        assertEquals(multi.rightQuestStartY + 4, multi.rightInvRow)
+        assertEquals(27, single.leftStartY)
+        assertEquals(27, multi.leftStartY)
     }
 
     @Test

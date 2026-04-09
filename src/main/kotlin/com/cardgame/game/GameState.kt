@@ -457,32 +457,31 @@ object GridConfig {
     val GRID_TOTAL_WIDTH get() = COLS * CELL_WIDTH
     val GRID_TOTAL_HEIGHT get() = ROWS * CELL_HEIGHT
 
-    /** Lines drawn by [GameScene.createHudSprite] (vertically centered in the left margin). */
-    /** Stats, quest, inventory hint, keys, controls, HP bar. */
+    /** Legacy hint for HUD scale (split left/right in [GameScene]); not all lines on one side. */
     const val HUD_LINE_COUNT = 10
     /** Screen columns between HUD text and the grid (avoids overlap). */
     const val HUD_GAP_BEFORE_GRID = 1
 
     /**
-     * Minimum CosPlay emuterm canvas for the main game: right-aligned grid plus the left HUD column
-     * ([CELL_WIDTH] chars) and [HUD_GAP_BEFORE_GRID]. Sized for ~1920×1080 with default font in Gradle;
-     * set `COSPLAY_EMUTERM_FONT_SIZE` lower if the window still overflows (HiDPI / large system fonts).
+     * Minimum CosPlay emuterm canvas for the main game: centered grid plus left and right HUD margins
+     * (each at least [CELL_WIDTH] wide) and [HUD_GAP_BEFORE_GRID] beside the board.
      */
-    const val MIN_EMUTERM_COLS = COLS * CELL_WIDTH + HUD_GAP_BEFORE_GRID + CELL_WIDTH
+    const val MIN_EMUTERM_COLS =
+        COLS * CELL_WIDTH + 2 * HUD_GAP_BEFORE_GRID + 2 * CELL_WIDTH
     const val MIN_EMUTERM_ROWS = ROWS * CELL_HEIGHT
 
-    // Dynamic offsets — grid is right-aligned; vertically centered. HUD uses columns left of [offsetX].
+    // Dynamic offsets — grid is horizontally centered; HUD uses columns left and right of the board.
     var offsetX = 4
         private set
     var offsetY = 2
         private set
 
     /**
-     * Right-align grid to the visible canvas. CosPlay uses 0-based x/y; last column is [canvasWidth - 1],
-     * so [offsetX] must be [canvasWidth - GRID_TOTAL_WIDTH], not +1 (which pushed the grid one past the edge).
+     * Center the grid on the visible canvas. CosPlay uses 0-based x/y; last column is [canvasWidth - 1].
      */
     fun updateOffsets(canvasWidth: Int, canvasHeight: Int) {
-        offsetX = (canvasWidth - GRID_TOTAL_WIDTH).coerceAtLeast(0)
+        val slackX = (canvasWidth - GRID_TOTAL_WIDTH).coerceAtLeast(0)
+        offsetX = (slackX + 1) / 2
         val slackY = (canvasHeight - GRID_TOTAL_HEIGHT).coerceAtLeast(0)
         // Integer centering leaves odd slack on the bottom; bias one row upward so margins match.
         offsetY = (slackY + 1) / 2
