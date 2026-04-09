@@ -12,27 +12,25 @@ class GameScenePhase2Test {
     @Test
     fun computeHudLayout_positionsRowsConsistently() {
         val layout = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 1)
-        assertEquals(5, layout.leftLineCount)
-        assertEquals(5, layout.rightLineCount)
-        assertEquals(27, layout.leftStartY)
-        assertEquals(27, layout.rightStartY)
-        assertEquals(layout.rightStartY, layout.rightQuestStartY)
-        assertEquals(layout.rightQuestStartY + 1, layout.rightInvRow)
-        assertEquals(layout.rightInvRow + 1, layout.rightKeysRow)
-        assertEquals(layout.rightKeysRow + 1, layout.rightDebugRow)
-        assertEquals(layout.rightKeysRow + 2, layout.rightBarY)
+        assertEquals(10, layout.totalLineCount)
+        assertEquals(5, layout.questBlockStartLine)
+        assertEquals(6, layout.inventoryLineIndex)
+        assertEquals(7, layout.keysLineIndex)
+        assertEquals(8, layout.controlsLineIndex)
+        assertEquals(9, layout.hpBarLineIndex)
     }
 
     @Test
     fun computeHudLayout_expandsForMultipleQuestLines() {
         val single = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 1)
         val multi = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 4)
-        assertEquals(5, single.rightLineCount)
-        assertEquals(8, multi.rightLineCount)
-        assertTrue(multi.rightStartY < single.rightStartY, "Right column should shift up as quest rows increase")
-        assertEquals(multi.rightQuestStartY + 4, multi.rightInvRow)
-        assertEquals(27, single.leftStartY)
-        assertEquals(27, multi.leftStartY)
+        assertEquals(10, single.totalLineCount)
+        assertEquals(13, multi.totalLineCount)
+        assertEquals(5, single.questBlockStartLine)
+        assertEquals(5, multi.questBlockStartLine)
+        assertEquals(multi.questBlockStartLine + 4, multi.inventoryLineIndex)
+        assertEquals(6, single.inventoryLineIndex)
+        assertEquals(9, multi.inventoryLineIndex)
     }
 
     @Test

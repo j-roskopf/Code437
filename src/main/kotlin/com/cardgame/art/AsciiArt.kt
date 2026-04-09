@@ -77,6 +77,34 @@ object AsciiArt {
         PlayerCharacter.THIEF -> PLAYER_THIEF
     }
 
+    /** Two-row repeat unit for the face-down deck pattern (tiled in [tiledDeckBackInterior]). */
+    private val DECK_BACK_TILE_LINES = listOf(
+        "   ░█▓ ▒█▒ ▓█░ ██ ░█▓ ▒█▒ ▓█░ ",
+        "  ██ ░█▒ ▓█░ ██  ██ ░█▒ ▓█░   ",
+    )
+
+    private fun repeatLineToWidth(line: String, width: Int): String {
+        if (width <= 0) return ""
+        if (line.isEmpty()) return " ".repeat(width)
+        val sb = StringBuilder(width)
+        var i = 0
+        while (i < width) {
+            val ch = line[i % line.length]
+            sb.append(ch)
+            i++
+        }
+        return sb.toString()
+    }
+
+    /** Fills a card interior (characters only; border drawn separately). */
+    fun tiledDeckBackInterior(innerCols: Int, innerRows: Int): List<String> {
+        if (innerCols <= 0 || innerRows <= 0) return emptyList()
+        val lines = DECK_BACK_TILE_LINES
+        return List(innerRows) { r ->
+            repeatLineToWidth(lines[r % lines.size], innerCols)
+        }
+    }
+
     /**
      * FIGlet "small"-style Unicode banner for [MenuScene]. Merged from "CODE" + gap + "437".
      */

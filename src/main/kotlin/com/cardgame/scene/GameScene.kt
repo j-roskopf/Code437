@@ -8,22 +8,21 @@ import com.cardgame.effects.*
 import com.cardgame.game.*
 import com.cardgame.quest.QuestSystem
 import java.util.IdentityHashMap
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.random.Random
 import org.cosplay.*
 import scala.Option
 
 object GameScene {
-    /** Main game HUD: left column (run meta) and right column (quests / keys / controls) each vertically centered. */
+    /** Row indices within the unified HUD text block (above the deck). */
     internal data class HudLayout(
-        val leftStartY: Int,
-        val rightStartY: Int,
-        val rightQuestStartY: Int,
-        val rightInvRow: Int,
-        val rightKeysRow: Int,
-        val rightDebugRow: Int,
-        val rightBarY: Int,
-        val leftLineCount: Int,
-        val rightLineCount: Int,
+        val totalLineCount: Int,
+        val questBlockStartLine: Int,
+        val inventoryLineIndex: Int,
+        val keysLineIndex: Int,
+        val controlsLineIndex: Int,
+        val hpBarLineIndex: Int,
     )
 
     internal data class WallChipResult(
@@ -101,29 +100,21 @@ object GameScene {
     private val KEY_LEFT = kbKey("KEY_LEFT")
     private val KEY_RIGHT = kbKey("KEY_RIGHT")
 
-    internal fun computeHudLayout(canvasHeight: Int, questLineCount: Int): HudLayout {
+    internal fun computeHudLayout(
+        @Suppress("UNUSED_PARAMETER") canvasHeight: Int,
+        questLineCount: Int,
+    ): HudLayout {
         val qc = questLineCount.coerceAtLeast(1)
-        val leftLines = 5
-        val rightLines = qc + 4
-        val leftStart = hudCenteredBlockStartY(canvasHeight, leftLines)
-        val rightStart = hudCenteredBlockStartY(canvasHeight, rightLines)
+        val meta = 5
+        val footer = 4
         return HudLayout(
-            leftStartY = leftStart,
-            rightStartY = rightStart,
-            rightQuestStartY = rightStart,
-            rightInvRow = rightStart + qc,
-            rightKeysRow = rightStart + qc + 1,
-            rightDebugRow = rightStart + qc + 2,
-            rightBarY = rightStart + qc + 3,
-            leftLineCount = leftLines,
-            rightLineCount = rightLines,
+            totalLineCount = meta + qc + footer,
+            questBlockStartLine = meta,
+            inventoryLineIndex = meta + qc,
+            keysLineIndex = meta + qc + 1,
+            controlsLineIndex = meta + qc + 2,
+            hpBarLineIndex = meta + qc + 3,
         )
-    }
-
-    /** Vertical start row for a block of [lineCount] lines, centered on [canvasHeight] (odd slack biased up). */
-    internal fun hudCenteredBlockStartY(canvasHeight: Int, lineCount: Int): Int {
-        val slack = (canvasHeight - lineCount).coerceAtLeast(0)
-        return ((slack + 1) / 2).coerceAtLeast(1)
     }
 
     internal fun hudStatsLine(level: Int, hp: Int, atkDisplay: String, shieldDisplay: String): String =
@@ -259,7 +250,13 @@ object GameScene {
     private val explosionFx = ExplosionEffect()
 
     private val slideAnimations = IdentityHashMap<Any, SlideAnim>()
-    private const val SLIDE_DURATION_FRAMES = 12
+    private const val SLIDE_DURATION_FRAMES = 6
+    private const val DECK_SLIDE_DURATION_FRAMES = 27
+    /** Normalized time: flip at deck (face-down → face-up), then exit left, then approach from board edge. */
+    private const val DECK_FLIP_END_T = 0.40f
+    private const val DECK_EXIT_END_T = 0.64f
+
+    private enum class DeckSpawnEdge { BOTTOM, RIGHT }
 
     private class SlideAnim(
         val fromX: Int,
@@ -267,7 +264,8 @@ object GameScene {
         val toX: Int,
         val toY: Int,
         var elapsed: Int = 0,
-        val durationFrames: Int = SLIDE_DURATION_FRAMES
+        val durationFrames: Int = SLIDE_DURATION_FRAMES,
+        val deckSpawnEdge: DeckSpawnEdge? = null,
     ) {
         private val lastFrame = (durationFrames - 1).coerceAtLeast(0)
 
@@ -285,9 +283,77 @@ object GameScene {
         slideAnimations[entity] = SlideAnim(fromX, fromY, toX, toY)
     }
 
+    private fun registerDeckSpawnSlide(entity: Any, toX: Int, toY: Int, edge: DeckSpawnEdge) {
+        slideAnimations[entity] = SlideAnim(
+            fromX = 0,
+            fromY = 0,
+            toX = toX,
+            toY = toY,
+            durationFrames = DECK_SLIDE_DURATION_FRAMES,
+            deckSpawnEdge = edge,
+        )
+    }
+
+    /** Gentler than [easeSlide] so deck spawn phases feel less snappy. */
+    private fun easeDeckMotion(t: Float): Float {
+        val x = t.coerceIn(0f, 1f)
+        return x * x * (3f - 2f * x)
+    }
+
+    private fun deckSpawnScreenPos(anim: SlideAnim, rawT: Float): Pair<Int, Int> {
+        val edge = anim.deckSpawnEdge ?: return anim.toX to anim.toY
+        val deckX = GridConfig.deckScreenX
+        val deckY = GridConfig.deckScreenY
+        val w = GridConfig.CELL_WIDTH
+        val h = GridConfig.CELL_HEIGHT
+        val t = rawT.coerceIn(0f, 1f)
+        val flipEnd = DECK_FLIP_END_T
+        val exitEnd = DECK_EXIT_END_T
+        when {
+            t < flipEnd -> return deckX to deckY
+            t < exitEnd -> {
+                val u = easeDeckMotion(((t - flipEnd) / (exitEnd - flipEnd)).coerceIn(0f, 1f))
+                val exitX = -w
+                val x = deckX + ((exitX - deckX) * u).toInt()
+                return x to deckY
+            }
+        }
+        val u = easeDeckMotion(((t - exitEnd) / (1f - exitEnd)).coerceIn(0f, 1f))
+        return when (edge) {
+            DeckSpawnEdge.BOTTOM -> {
+                val sx = anim.toX
+                val sy = anim.toY + h
+                val x = sx + ((anim.toX - sx) * u).toInt()
+                val y = sy + ((anim.toY - sy) * u).toInt()
+                x to y
+            }
+            DeckSpawnEdge.RIGHT -> {
+                val sx = anim.toX + w
+                val sy = anim.toY
+                val x = sx + ((anim.toX - sx) * u).toInt()
+                val y = sy + ((anim.toY - sy) * u).toInt()
+                x to y
+            }
+        }
+    }
+
+    /** 0..1 while the deck spawn is in the flip phase (card stays on deck); null afterward. */
+    private fun deckSpawnFlipProgress(entity: Any): Float? {
+        val anim = slideAnimations[entity] ?: return null
+        if (anim.deckSpawnEdge == null) return null
+        val t = anim.progress()
+        if (t >= DECK_FLIP_END_T) return null
+        return easeDeckMotion((t / DECK_FLIP_END_T).coerceIn(0f, 1f))
+    }
+
     private fun slidingScreenPos(entity: Any, baseX: Int, baseY: Int): Pair<Int, Int> {
         val anim = slideAnimations[entity] ?: return baseX to baseY
-        val t = easeSlide(anim.progress())
+        val tLinear = anim.progress()
+        val edge = anim.deckSpawnEdge
+        if (edge != null) {
+            return deckSpawnScreenPos(anim, tLinear)
+        }
+        val t = easeSlide(tLinear)
         val x = anim.fromX + ((anim.toX - anim.fromX) * t).toInt()
         val y = anim.fromY + ((anim.toY - anim.fromY) * t).toInt()
         return x to y
@@ -416,16 +482,14 @@ object GameScene {
             removeEntitiesAt(col, row)
             val toX = GridConfig.cellScreenX(col)
             val toY = GridConfig.cellScreenY(row)
-            val fromX = toX
-            val fromY = toY + GridConfig.CELL_HEIGHT
             if (Random.nextBoolean()) {
                 val newItem = LevelGenerator.randomItemAt(col, row, items, enemies)
                 items = items + newItem
-                registerSlide(newItem, fromX, fromY, toX, toY)
+                registerDeckSpawnSlide(newItem, toX, toY, DeckSpawnEdge.BOTTOM)
             } else {
                 val newEnemy = LevelGenerator.randomEnemyAt(col, row, enemies, items)
                 enemies = enemies + newEnemy
-                registerSlide(newEnemy, fromX, fromY, toX, toY)
+                registerDeckSpawnSlide(newEnemy, toX, toY, DeckSpawnEdge.BOTTOM)
             }
         }
     }
@@ -482,16 +546,14 @@ object GameScene {
             removeEntitiesAt(col, row)
             val toX = GridConfig.cellScreenX(col)
             val toY = GridConfig.cellScreenY(row)
-            val fromX = toX + GridConfig.CELL_WIDTH
-            val fromY = toY
             if (Random.nextBoolean()) {
                 val newItem = LevelGenerator.randomItemAt(col, row, items, enemies)
                 items = items + newItem
-                registerSlide(newItem, fromX, fromY, toX, toY)
+                registerDeckSpawnSlide(newItem, toX, toY, DeckSpawnEdge.RIGHT)
             } else {
                 val newEnemy = LevelGenerator.randomEnemyAt(col, row, enemies, items)
                 enemies = enemies + newEnemy
-                registerSlide(newEnemy, fromX, fromY, toX, toY)
+                registerDeckSpawnSlide(newEnemy, toX, toY, DeckSpawnEdge.RIGHT)
             }
         }
     }
@@ -524,19 +586,15 @@ object GameScene {
     private fun px(ch: Char, fg: CPColor, bg: CPColor): CPPixel =
         CPPixel(ch, fg, Option.apply(bg), 0)
 
-    private fun leftHudSpanWidth(gridStartX: Int): Int =
-        (gridStartX - GridConfig.HUD_GAP_BEFORE_GRID).coerceAtLeast(0)
+    private fun syncClusterLayout(canv: CPCanvas) {
+        val qc = GameState.questHudLines().size
+        GridConfig.updateClusterLayout(canv.width(), canv.height(), qc)
+    }
 
-    private fun rightHudStartX(gridStartX: Int): Int =
-        gridStartX + GridConfig.GRID_TOTAL_WIDTH + GridConfig.HUD_GAP_BEFORE_GRID
-
-    private fun rightHudSpanWidth(canvasWidth: Int, gridStartX: Int): Int =
-        (canvasWidth - rightHudStartX(gridStartX)).coerceAtLeast(0)
-
-    /** Horizontally center a line of length [textLen] in [spanLeft]..+[spanWidth]. */
-    private fun hudXCenteredInSpan(spanLeft: Int, spanWidth: Int, textLen: Int): Int {
-        if (spanWidth <= 0) return spanLeft
-        return spanLeft + ((spanWidth - textLen).coerceAtLeast(0) + 1) / 2
+    /** Horizontally center a line of length [textLen] in the cluster ([clusterWidth] chars wide). */
+    private fun hudXCenteredInCluster(clusterLeft: Int, clusterWidth: Int, textLen: Int): Int {
+        if (clusterWidth <= 0) return clusterLeft
+        return clusterLeft + ((clusterWidth - textLen).coerceAtLeast(0) + 1) / 2
     }
 
     private fun hudLineFit(s: String, max: Int): String {
@@ -549,15 +607,39 @@ object GameScene {
     /** Pixel width of item/enemy ASCII (matches [AsciiArt] lines; keeps art inside the card). */
     private val artPixelWidth = 30
 
+    /** Horizontal strip around card center; null = no clipping. */
+    private fun allowInteriorClipDraw(sx: Int, w: Int, x: Int, clipHalfW: Int?): Boolean {
+        if (clipHalfW == null) return true
+        val cx = sx + w / 2
+        return abs(x - cx) <= clipHalfW
+    }
+
+    private fun lerpInt(a: Int, b: Int, t: Float): Int =
+        (a + (b - a) * t.coerceIn(0f, 1f)).roundToInt()
+
     /** Draw a line of text char-by-char onto the canvas. */
     private fun drawArt(
-        canv: CPCanvas, art: List<String>, startX: Int, startY: Int, z: Int, fg: CPColor
+        canv: CPCanvas,
+        art: List<String>,
+        startX: Int,
+        startY: Int,
+        z: Int,
+        fg: CPColor,
+        clipCardSx: Int? = null,
+        clipCardW: Int? = null,
+        interiorClipHalfWidth: Int? = null,
     ) {
+        val useClip = clipCardSx != null && clipCardW != null && interiorClipHalfWidth != null
         for ((row, line) in art.withIndex()) {
             val clipped = line.take(artPixelWidth)
             for ((col, ch) in clipped.withIndex()) {
                 if (ch != ' ') {
-                    canv.drawPixel(px(ch, fg), startX + col, startY + row, z)
+                    val pxX = startX + col
+                    val pxY = startY + row
+                    if (useClip && !allowInteriorClipDraw(clipCardSx!!, clipCardW!!, pxX, interiorClipHalfWidth)) {
+                        continue
+                    }
+                    canv.drawPixel(px(ch, fg), pxX, pxY, z)
                 }
             }
         }
@@ -579,6 +661,139 @@ object GameScene {
         val slack = maxRows - lc
         // Put odd slack above the art so sprites don’t sit high with empty space under them.
         return topRow + (slack + 1) / 2
+    }
+
+    private fun drawDeckCardBackAt(canv: CPCanvas, sx: Int, sy: Int, w: Int, h: Int, z: Int) {
+        val borderColor = CPColor(110, 105, 145, "deck-border")
+        val pat = CPColor(72, 68, 108, "deck-pattern")
+        drawCardBorder(canv, sx, sy, w, h, z, borderColor)
+        val inner = AsciiArt.tiledDeckBackInterior(w - 2, h - 2)
+        val innerW = w - 2
+        for ((row, line) in inner.withIndex()) {
+            val rowText = if (line.length >= innerW) line else line.padEnd(innerW)
+            for (col in 0 until innerW) {
+                val ch = rowText[col]
+                if (ch != ' ') canv.drawPixel(px(ch, pat), sx + 1 + col, sy + 1 + row, z)
+            }
+        }
+    }
+
+    /** Face-down pattern narrowed toward the horizontal center (rotation toward edge-on). */
+    private fun drawDeckCardBackSqueezedAt(
+        canv: CPCanvas, sx: Int, sy: Int, w: Int, h: Int, z: Int, clipHalfW: Int
+    ) {
+        val borderColor = CPColor(110, 105, 145, "deck-border")
+        val pat = CPColor(72, 68, 108, "deck-pattern")
+        drawCardBorder(canv, sx, sy, w, h, z, borderColor)
+        val inner = AsciiArt.tiledDeckBackInterior(w - 2, h - 2)
+        val innerW = w - 2
+        for ((row, line) in inner.withIndex()) {
+            val rowText = if (line.length >= innerW) line else line.padEnd(innerW)
+            for (col in 0 until innerW) {
+                val ch = rowText[col]
+                if (ch == ' ') continue
+                val x = sx + 1 + col
+                if (!allowInteriorClipDraw(sx, w, x, clipHalfW)) continue
+                canv.drawPixel(px(ch, pat), x, sy + 1 + row, z)
+            }
+        }
+    }
+
+    /**
+     * Edge-on card: [coreHalfWidth] is how many columns left/right of center get ink (0 = spine only).
+     * Darker glyphs at the spine, lighter at the “fold” to read as thickness.
+     */
+    private fun drawCardFlipEdgeAt(
+        canv: CPCanvas, sx: Int, sy: Int, w: Int, h: Int, z: Int, coreHalfWidth: Int
+    ) {
+        val edgeBorder = CPColor(120, 115, 155, "flip-edge-border")
+        val edgeCore = CPColor(88, 84, 118, "flip-edge-core")
+        val edgeMid = CPColor(118, 112, 152, "flip-edge-mid")
+        val edgeHi = CPColor(148, 142, 182, "flip-edge-hi")
+        drawCardBorder(canv, sx, sy, w, h, z, edgeBorder)
+        val cx = sx + w / 2
+        val top = sy + 2
+        val bot = sy + h - 3
+        for (yy in top..bot) {
+            for (dx in -coreHalfWidth..coreHalfWidth) {
+                val x = cx + dx
+                if (x <= sx || x >= sx + w - 1) continue
+                val ad = abs(dx)
+                val ch = when {
+                    ad == 0 -> '█'
+                    ad == 1 -> '▓'
+                    ad == 2 -> '▒'
+                    else -> '░'
+                }
+                val fg = when {
+                    ad == 0 -> edgeHi
+                    ad == 1 -> edgeMid
+                    else -> edgeCore
+                }
+                canv.drawPixel(px(ch, fg), x, yy, z)
+            }
+        }
+    }
+
+    private fun drawDeckFaceDown(canv: CPCanvas, gc: GridConfig) {
+        drawDeckCardBackAt(canv, gc.deckScreenX, gc.deckScreenY, gc.CELL_WIDTH, gc.CELL_HEIGHT, 0)
+    }
+
+    private fun maxInteriorClipHalf(w: Int): Int = (w - 2) / 2
+
+    /** Multi-stage flip: squeeze back → thick edge → spine → widen face. Always returns true (covers whole flip phase). */
+    private fun drawDeckSpawnFlipForItem(
+        canv: CPCanvas, item: GridItem, sx: Int, sy: Int, flipP: Float, gc: GridConfig,
+    ): Boolean {
+        val w = gc.CELL_WIDTH
+        val h = gc.CELL_HEIGHT
+        val maxHalf = maxInteriorClipHalf(w)
+        when {
+            flipP < 0.10f -> drawDeckCardBackAt(canv, sx, sy, w, h, 1)
+            flipP < 0.30f -> {
+                val u = easeDeckMotion((flipP - 0.10f) / 0.20f)
+                val halfW = lerpInt(maxHalf, 5, u).coerceAtLeast(2)
+                drawDeckCardBackSqueezedAt(canv, sx, sy, w, h, 1, halfW)
+            }
+            flipP < 0.34f -> drawCardFlipEdgeAt(canv, sx, sy, w, h, 1, 3)
+            flipP < 0.38f -> drawCardFlipEdgeAt(canv, sx, sy, w, h, 1, 2)
+            flipP < 0.42f -> drawCardFlipEdgeAt(canv, sx, sy, w, h, 1, 1)
+            flipP < 0.45f -> drawCardFlipEdgeAt(canv, sx, sy, w, h, 1, 0)
+            flipP < 0.82f -> {
+                val u = easeDeckMotion((flipP - 0.45f) / 0.37f)
+                val halfW = lerpInt(1, maxHalf, u).coerceIn(1, maxHalf)
+                drawGridItemCard(canv, item, sx, sy, gc, interiorClipHalfWidth = halfW)
+            }
+            else -> drawGridItemCard(canv, item, sx, sy, gc, interiorClipHalfWidth = null)
+        }
+        return true
+    }
+
+    private fun drawDeckSpawnFlipForEnemy(
+        canv: CPCanvas, enemy: EnemyCard, sx: Int, sy: Int, flipP: Float, gc: GridConfig,
+    ): Boolean {
+        val w = gc.CELL_WIDTH
+        val h = gc.CELL_HEIGHT
+        val maxHalf = maxInteriorClipHalf(w)
+        when {
+            flipP < 0.10f -> drawDeckCardBackAt(canv, sx, sy, w, h, 1)
+            flipP < 0.30f -> {
+                val u = easeDeckMotion((flipP - 0.10f) / 0.20f)
+                val halfW = lerpInt(maxHalf, 5, u).coerceAtLeast(2)
+                drawDeckCardBackSqueezedAt(canv, sx, sy, w, h, 1, halfW)
+            }
+            flipP < 0.34f -> drawCardFlipEdgeAt(canv, sx, sy, w, h, 1, 3)
+            flipP < 0.38f -> drawCardFlipEdgeAt(canv, sx, sy, w, h, 1, 2)
+            flipP < 0.42f -> drawCardFlipEdgeAt(canv, sx, sy, w, h, 1, 1)
+            flipP < 0.45f -> drawCardFlipEdgeAt(canv, sx, sy, w, h, 1, 0)
+            flipP < 0.82f -> {
+                val u = easeDeckMotion((flipP - 0.45f) / 0.37f)
+                val halfW = lerpInt(1, maxHalf, u).coerceIn(1, maxHalf)
+                drawGridEnemyCard(canv, enemy, sx, sy, gc, interiorClipHalfWidth = halfW)
+            }
+            else -> drawGridEnemyCard(canv, enemy, sx, sy, gc, interiorClipHalfWidth = null)
+        }
+        return true
     }
 
     /** Draw a card border (box-drawing chars). */
@@ -666,6 +881,175 @@ object GameScene {
         }
     }
 
+    private fun drawGridItemCard(
+        canv: CPCanvas,
+        item: GridItem,
+        sx: Int,
+        sy: Int,
+        gc: GridConfig,
+        interiorClipHalfWidth: Int? = null,
+    ) {
+        val cw = gc.CELL_WIDTH
+        val ch = gc.CELL_HEIGHT
+        val color = CardArt.itemTileColor(item)
+        val dimColor = color.transformRGB(0.5f)
+
+        drawCardBorder(canv, sx, sy, cw, ch, 1, color)
+
+        val title = when (item.type) {
+            ItemType.KEY -> item.tier.name
+            ItemType.CHEST -> "${item.tier.name} CHEST"
+            ItemType.SPIKES -> "DEADLY"
+            ItemType.BOMB -> "BOMB"
+            ItemType.WALL -> "WALL"
+            ItemType.QUEST -> "QUEST"
+            ItemType.REST -> "REST POINT"
+            ItemType.HAND_ARMOR -> "GUARD"
+            ItemType.HELMET -> "HELM"
+            ItemType.NECKLACE -> "NECK"
+            ItemType.CHEST_ARMOR -> "ARMOR"
+            ItemType.LEGGINGS -> "LEGS"
+            ItemType.BOOTS_ARMOR -> "BOOT"
+            else -> item.type.label
+        }.take(cw - 2)
+        val tx = centerX(title, sx, cw)
+        for ((i, ch) in title.withIndex()) {
+            val pxX = tx + i
+            if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
+                canv.drawPixel(px(ch, color), pxX, sy + 1, 1)
+            }
+        }
+        if (GameState.debugRevealSecrets && item.secretRoom) {
+            drawCardBorder(canv, sx, sy, cw, ch, 2, CPColor.C_GOLD1())
+            val qx = sx + cw - 3
+            if (allowInteriorClipDraw(sx, cw, qx, interiorClipHalfWidth)) {
+                canv.drawPixel(px('?', CPColor.C_GOLD1()), qx, sy + 1, 1)
+            }
+        }
+
+        val art = if (item.type == ItemType.CHEST && item.chestOpened) {
+            clippedArt(AsciiArt.MONEY_PILE)
+        } else {
+            clippedArt(CardArt.itemSprite(item))
+        }
+        val artX = sx + (cw - artPixelWidth) / 2
+        val artY = artCenterY(sy, art.size)
+        drawArt(canv, art, artX, artY, 1, color, sx, cw, interiorClipHalfWidth)
+
+        val label = when {
+            item.type == ItemType.CHEST && !item.chestOpened ->
+                hudLineFit("NEED ${item.tier.name} KEY  ${item.value} GP", cw - 2)
+            item.type == ItemType.CHEST && !item.chestGoldClaimed ->
+                hudLineFit("${item.value} GP  STEP", cw - 2)
+            item.type == ItemType.CHEST ->
+                ""
+            item.type == ItemType.KEY -> item.tier.name
+            item.type == ItemType.SPIKES -> "!!"
+            item.type == ItemType.BOMB -> "▶ ${item.bombTicks}"
+            item.type == ItemType.WALL -> "BRK ${item.wallHp.coerceAtLeast(1)}"
+            item.type == ItemType.QUEST -> "STEP"
+            item.type == ItemType.REST -> "HEAL"
+            item.type == ItemType.SHOP || item.type == ItemType.GAMBLING -> "STEP"
+            item.type.equipmentSlot() != null -> "EQUIP"
+            else -> "+${item.value}"
+        }
+        val labelRow = sy + ch - 2
+        if (item.type == ItemType.BOMB) {
+            val prefix = "▶ "
+            val numStr = "${item.bombTicks}"
+            val lx = centerX(prefix + numStr, sx, cw)
+            val pulse = bombTickFlash.intensityAt(item.gridX, item.gridY)
+            val digitHot = CPColor(255, 245, 120, "bomb-digit")
+            val arrowHot = CPColor(255, 200, 80, "bomb-arrow")
+            for ((i, ch) in prefix.withIndex()) {
+                val pxX = lx + i
+                if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
+                    val c = lerpColor(dimColor, arrowHot, pulse * 0.9f)
+                    canv.drawPixel(px(ch, c), pxX, labelRow, 1)
+                }
+            }
+            for ((i, ch) in numStr.withIndex()) {
+                val pxX = lx + prefix.length + i
+                if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
+                    val c = lerpColor(dimColor, digitHot, pulse * 0.95f)
+                    canv.drawPixel(px(ch, c), pxX, labelRow, 1)
+                }
+            }
+            if (pulse > 0.12f) {
+                val glow = lerpColor(dimColor, CPColor(255, 255, 255, "glow"), pulse * 0.55f)
+                for ((i, ch) in numStr.withIndex()) {
+                    if (ch.isDigit()) {
+                        val pxX = lx + prefix.length + i
+                        if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
+                            canv.drawPixel(px(ch, glow), pxX, labelRow - 1, 1)
+                        }
+                    }
+                }
+            }
+        } else {
+            val lx = centerX(label, sx, cw)
+            for ((i, ch) in label.withIndex()) {
+                val pxX = lx + i
+                if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
+                    canv.drawPixel(px(ch, dimColor), pxX, labelRow, 1)
+                }
+            }
+        }
+    }
+
+    private fun drawGridEnemyCard(
+        canv: CPCanvas,
+        enemy: EnemyCard,
+        sx: Int,
+        sy: Int,
+        gc: GridConfig,
+        interiorClipHalfWidth: Int? = null,
+    ) {
+        val cw = gc.CELL_WIDTH
+        val ch = gc.CELL_HEIGHT
+        val nameColor = if (enemy.isElite) CPColor.C_GOLD1() else CPColor.C_INDIAN_RED1()
+        val borderColor = if (enemy.isElite) CPColor.C_ORANGE1() else CPColor.C_INDIAN_RED1()
+        val artColor = CPColor.C_RED1()
+        val statsColor = if (enemy.isElite) CPColor.C_GOLD1() else CPColor.C_ORANGE_RED1()
+
+        drawCardBorder(canv, sx, sy, cw, ch, 1, borderColor)
+
+        val rawTitle =
+            if (enemy.isElite) "ELITE ${enemy.kind.displayName}" else enemy.kind.displayName
+        val name = rawTitle.take(cw - 2)
+        val nx = centerX(name, sx, cw)
+        for ((i, ch) in name.withIndex()) {
+            val pxX = nx + i
+            if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
+                canv.drawPixel(px(ch, nameColor), pxX, sy + 1, 1)
+            }
+        }
+        if (GameState.debugRevealSecrets && enemy.secretRoom) {
+            drawCardBorder(canv, sx, sy, cw, ch, 2, CPColor.C_GOLD1())
+            val qx = sx + cw - 3
+            if (allowInteriorClipDraw(sx, cw, qx, interiorClipHalfWidth)) {
+                canv.drawPixel(px('?', CPColor.C_GOLD1()), qx, sy + 1, 1)
+            }
+        }
+
+        val art = clippedArt(CardArt.enemySprite(enemy.kind))
+        val artX = sx + (cw - (art.firstOrNull()?.length ?: 0)) / 2
+        val artY = artCenterY(sy, art.size)
+        drawArt(canv, art, artX, artY, 1, artColor, sx, cw, interiorClipHalfWidth)
+
+        val stats =
+            if (enemy.isElite) "★ ATK:${enemy.attack}  HP:${enemy.health}"
+            else "ATK:${enemy.attack}  HP:${enemy.health}"
+        val stx = centerX(stats, sx, cw)
+        val statsRow = sy + ch - 2
+        for ((i, cch) in stats.withIndex()) {
+            val pxX = stx + i
+            if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
+                canv.drawPixel(px(cch, statsColor), pxX, statsRow, 1)
+            }
+        }
+    }
+
     private fun createGridSprite(
         shaders: scala.collection.immutable.Seq<CPShader>,
         tags: scala.collection.immutable.Set<String>
@@ -680,10 +1064,11 @@ object GameScene {
                 val canv = ctx.canvas
                 val gc = GridConfig
 
-                // Center grid on screen each frame
-                gc.updateOffsets(canv.width(), canv.height())
+                syncClusterLayout(canv)
 
                 val emptyBorder = CPColor(50, 50, 70, "empty-border")
+
+                drawDeckFaceDown(canv, gc)
 
                 // Draw empty cell borders
                 for (row in 0 until gc.ROWS) {
@@ -702,94 +1087,12 @@ object GameScene {
                         gc.cellScreenX(item.gridX),
                         gc.cellScreenY(item.gridY)
                     )
-                    val color = CardArt.itemTileColor(item)
-                    val dimColor = color.transformRGB(0.5f)
-
-                    drawCardBorder(canv, sx, sy, gc.CELL_WIDTH, gc.CELL_HEIGHT, 1, color)
-
-                    // Item name at top
-                    val title = when (item.type) {
-                        ItemType.KEY -> item.tier.name
-                        ItemType.CHEST -> "${item.tier.name} CHEST"
-                        ItemType.SPIKES -> "DEADLY"
-                        ItemType.BOMB -> "BOMB"
-                        ItemType.WALL -> "WALL"
-                        ItemType.QUEST -> "QUEST"
-                        ItemType.REST -> "REST POINT"
-                        ItemType.HAND_ARMOR -> "GUARD"
-                        ItemType.HELMET -> "HELM"
-                        ItemType.NECKLACE -> "NECK"
-                        ItemType.CHEST_ARMOR -> "ARMOR"
-                        ItemType.LEGGINGS -> "LEGS"
-                        ItemType.BOOTS_ARMOR -> "BOOT"
-                        else -> item.type.label
-                    }.take(gc.CELL_WIDTH - 2)
-                    val tx = centerX(title, sx, gc.CELL_WIDTH)
-                    for ((i, ch) in title.withIndex()) {
-                        canv.drawPixel(px(ch, color), tx + i, sy + 1, 1)
+                    val flipP = deckSpawnFlipProgress(item)
+                    if (flipP != null) {
+                        drawDeckSpawnFlipForItem(canv, item, sx, sy, flipP, gc)
+                        continue
                     }
-                    if (GameState.debugRevealSecrets && item.secretRoom) {
-                        drawCardBorder(canv, sx, sy, gc.CELL_WIDTH, gc.CELL_HEIGHT, 2, CPColor.C_GOLD1())
-                        canv.drawPixel(px('?', CPColor.C_GOLD1()), sx + gc.CELL_WIDTH - 3, sy + 1, 1)
-                    }
-
-                    val art = if (item.type == ItemType.CHEST && item.chestOpened) {
-                        clippedArt(AsciiArt.MONEY_PILE)
-                    } else {
-                        clippedArt(CardArt.itemSprite(item))
-                    }
-                    val artX = sx + (gc.CELL_WIDTH - artPixelWidth) / 2
-                    val artY = artCenterY(sy, art.size)
-                    drawArt(canv, art, artX, artY, 1, color)
-
-                    val label = when {
-                        item.type == ItemType.CHEST && !item.chestOpened ->
-                            hudLineFit("NEED ${item.tier.name} KEY  ${item.value} GP", gc.CELL_WIDTH - 2)
-                        item.type == ItemType.CHEST && !item.chestGoldClaimed ->
-                            hudLineFit("${item.value} GP  STEP", gc.CELL_WIDTH - 2)
-                        item.type == ItemType.CHEST ->
-                            ""
-                        item.type == ItemType.KEY -> item.tier.name
-                        item.type == ItemType.SPIKES -> "!!"
-                        item.type == ItemType.BOMB -> "▶ ${item.bombTicks}"
-                        item.type == ItemType.WALL -> "BRK ${item.wallHp.coerceAtLeast(1)}"
-                        item.type == ItemType.QUEST -> "STEP"
-                        item.type == ItemType.REST -> "HEAL"
-                        item.type == ItemType.SHOP || item.type == ItemType.GAMBLING -> "STEP"
-                        item.type.equipmentSlot() != null -> "EQUIP"
-                        else -> "+${item.value}"
-                    }
-                    val labelRow = sy + gc.CELL_HEIGHT - 2
-                    if (item.type == ItemType.BOMB) {
-                        val prefix = "▶ "
-                        val numStr = "${item.bombTicks}"
-                        val full = prefix + numStr
-                        val lx = centerX(full, sx, gc.CELL_WIDTH)
-                        val pulse = bombTickFlash.intensityAt(item.gridX, item.gridY)
-                        val digitHot = CPColor(255, 245, 120, "bomb-digit")
-                        val arrowHot = CPColor(255, 200, 80, "bomb-arrow")
-                        for ((i, ch) in prefix.withIndex()) {
-                            val c = lerpColor(dimColor, arrowHot, pulse * 0.9f)
-                            canv.drawPixel(px(ch, c), lx + i, labelRow, 1)
-                        }
-                        for ((i, ch) in numStr.withIndex()) {
-                            val c = lerpColor(dimColor, digitHot, pulse * 0.95f)
-                            canv.drawPixel(px(ch, c), lx + prefix.length + i, labelRow, 1)
-                        }
-                        if (pulse > 0.12f) {
-                            val glow = lerpColor(dimColor, CPColor(255, 255, 255, "glow"), pulse * 0.55f)
-                            for ((i, ch) in numStr.withIndex()) {
-                                if (ch.isDigit()) {
-                                    canv.drawPixel(px(ch, glow), lx + prefix.length + i, labelRow - 1, 1)
-                                }
-                            }
-                        }
-                    } else {
-                        val lx = centerX(label, sx, gc.CELL_WIDTH)
-                        for ((i, ch) in label.withIndex()) {
-                            canv.drawPixel(px(ch, dimColor), lx + i, labelRow, 1)
-                        }
-                    }
+                    drawGridItemCard(canv, item, sx, sy, gc)
                 }
 
                 // Draw enemies
@@ -800,38 +1103,12 @@ object GameScene {
                         gc.cellScreenX(enemy.gridX),
                         gc.cellScreenY(enemy.gridY)
                     )
-                    val nameColor = if (enemy.isElite) CPColor.C_GOLD1() else CPColor.C_INDIAN_RED1()
-                    val borderColor = if (enemy.isElite) CPColor.C_ORANGE1() else CPColor.C_INDIAN_RED1()
-                    val artColor = CPColor.C_RED1()
-                    val statsColor = if (enemy.isElite) CPColor.C_GOLD1() else CPColor.C_ORANGE_RED1()
-
-                    drawCardBorder(canv, sx, sy, gc.CELL_WIDTH, gc.CELL_HEIGHT, 1, borderColor)
-
-                    // Name at top
-                    val rawTitle =
-                        if (enemy.isElite) "ELITE ${enemy.kind.displayName}" else enemy.kind.displayName
-                    val name = rawTitle.take(gc.CELL_WIDTH - 2)
-                    val nx = centerX(name, sx, gc.CELL_WIDTH)
-                    for ((i, ch) in name.withIndex()) {
-                        canv.drawPixel(px(ch, nameColor), nx + i, sy + 1, 1)
+                    val flipP = deckSpawnFlipProgress(enemy)
+                    if (flipP != null) {
+                        drawDeckSpawnFlipForEnemy(canv, enemy, sx, sy, flipP, gc)
+                        continue
                     }
-                    if (GameState.debugRevealSecrets && enemy.secretRoom) {
-                        drawCardBorder(canv, sx, sy, gc.CELL_WIDTH, gc.CELL_HEIGHT, 2, CPColor.C_GOLD1())
-                        canv.drawPixel(px('?', CPColor.C_GOLD1()), sx + gc.CELL_WIDTH - 3, sy + 1, 1)
-                    }
-
-                    val art = clippedArt(CardArt.enemySprite(enemy.kind))
-                    val artX = sx + (gc.CELL_WIDTH - (art.firstOrNull()?.length ?: 0)) / 2
-                    val artY = artCenterY(sy, art.size)
-                    drawArt(canv, art, artX, artY, 1, artColor)
-
-                    val stats =
-                        if (enemy.isElite) "★ ATK:${enemy.attack}  HP:${enemy.health}"
-                        else "ATK:${enemy.attack}  HP:${enemy.health}"
-                    val stx = centerX(stats, sx, gc.CELL_WIDTH)
-                    for ((i, ch) in stats.withIndex()) {
-                        canv.drawPixel(px(ch, statsColor), stx + i, sy + gc.CELL_HEIGHT - 2, 1)
-                    }
+                    drawGridEnemyCard(canv, enemy, sx, sy, gc)
                 }
             }
         }
@@ -1158,26 +1435,22 @@ object GameScene {
         return object : CPCanvasSprite("hud", shaders, tags) {
             override fun render(ctx: CPSceneObjectContext) {
                 val canv = ctx.canvas
-                val w = canv.width()
                 val h = canv.height()
-                GridConfig.updateOffsets(w, h)
-                val gx = GridConfig.offsetX
-                val leftSpan = leftHudSpanWidth(gx)
-                val rightX0 = rightHudStartX(gx)
-                val rightSpan = rightHudSpanWidth(w, gx)
-                val leftMax = leftSpan.coerceAtLeast(8)
-                val rightMax = rightSpan.coerceAtLeast(8)
+                syncClusterLayout(canv)
+                val cx = GridConfig.clusterOriginX
+                val cw = GridConfig.HUD_COLUMN_WIDTH
+                val textMax = cw.coerceAtLeast(8)
 
                 val questLinesRaw = GameState.questHudLines()
                 val layout = computeHudLayout(h, questLinesRaw.size)
-                val questLines = questLinesRaw.map { hudLineFit(it, rightMax) }
+                val questLines = questLinesRaw.map { hudLineFit(it, textMax) }
                 val hudZ = 15 // above grid/player (≤4) and confetti (10)
 
                 val goal = LevelConfig.targetScore(GameState.currentLevel)
-                val ly = layout.leftStartY
+                val ly = GridConfig.hudTopY
 
-                val line1 = hudLineFit("CARD CRAWLER", leftMax)
-                val loreLine = hudLineFit(LevelConfig.hudLore(GameState.currentLevel), leftMax)
+                val line1 = hudLineFit("CARD CRAWLER", textMax)
+                val loreLine = hudLineFit(LevelConfig.hudLore(GameState.currentLevel), textMax)
                 val line2 = hudLineFit(
                     hudStatsLine(
                         level = GameState.currentLevel,
@@ -1185,10 +1458,10 @@ object GameScene {
                         atkDisplay = GameState.playerAttackDisplay(),
                         shieldDisplay = GameState.playerShieldDisplay(),
                     ),
-                    leftMax,
+                    textMax,
                 )
-                val line3 = hudLineFit("SCORE ${GameState.score} / $goal", leftMax)
-                val line4 = hudLineFit("GOLD ${GameState.money}", leftMax)
+                val line3 = hudLineFit("SCORE ${GameState.score} / $goal", textMax)
+                val line4 = hudLineFit("GOLD ${GameState.money}", textMax)
                 val dbgSecret = run {
                     val secretItem = items.firstOrNull { !it.collected && it.secretRoom }
                     val secretEnemy = enemies.firstOrNull { !it.defeated && it.secretRoom }
@@ -1198,29 +1471,29 @@ object GameScene {
                         else -> "DBG:none"
                     }
                 }
-                val invHint = hudLineFit("I — open inventory", rightMax)
+                val invHint = hudLineFit("I — open inventory", textMax)
                 val lineControls = hudLineFit(
                     if (GameState.debugRevealSecrets) "WASD Z-dbg Q/Esc  $dbgSecret"
                     else "WASD move  Z debug  Q/Esc quit",
-                    rightMax,
+                    textMax,
                 )
 
                 val bg = Option.apply(BG_COLOR)
                 val blue = CPColor.C_STEEL_BLUE1()
                 val goldHud = CPColor.C_GOLD1()
-                canv.drawString(hudXCenteredInSpan(0, leftSpan, line1.length), ly, hudZ, line1, CPColor.C_GOLD1(), bg)
-                canv.drawString(hudXCenteredInSpan(0, leftSpan, loreLine.length), ly + 1, hudZ, loreLine, CPColor.C_GREY70(), bg)
-                canv.drawString(hudXCenteredInSpan(0, leftSpan, line2.length), ly + 2, hudZ, line2, blue, bg)
-                canv.drawString(hudXCenteredInSpan(0, leftSpan, line3.length), ly + 3, hudZ, line3, blue, bg)
-                canv.drawString(hudXCenteredInSpan(0, leftSpan, line4.length), ly + 4, hudZ, line4, goldHud, bg)
+                canv.drawString(hudXCenteredInCluster(cx, cw, line1.length), ly, hudZ, line1, CPColor.C_GOLD1(), bg)
+                canv.drawString(hudXCenteredInCluster(cx, cw, loreLine.length), ly + 1, hudZ, loreLine, CPColor.C_GREY70(), bg)
+                canv.drawString(hudXCenteredInCluster(cx, cw, line2.length), ly + 2, hudZ, line2, blue, bg)
+                canv.drawString(hudXCenteredInCluster(cx, cw, line3.length), ly + 3, hudZ, line3, blue, bg)
+                canv.drawString(hudXCenteredInCluster(cx, cw, line4.length), ly + 4, hudZ, line4, goldHud, bg)
                 val questColor = when {
                     GameState.questFlashText() != null -> CPColor.C_GOLD1()
                     else -> CPColor(165, 120, 255, "quest-hud")
                 }
-                val qy = layout.rightQuestStartY
+                val qy = ly + layout.questBlockStartLine
                 for ((i, qLine) in questLines.withIndex()) {
                     canv.drawString(
-                        hudXCenteredInSpan(rightX0, rightSpan, qLine.length),
+                        hudXCenteredInCluster(cx, cw, qLine.length),
                         qy + i,
                         hudZ,
                         qLine,
@@ -1229,8 +1502,8 @@ object GameScene {
                     )
                 }
                 canv.drawString(
-                    hudXCenteredInSpan(rightX0, rightSpan, invHint.length),
-                    layout.rightInvRow,
+                    hudXCenteredInCluster(cx, cw, invHint.length),
+                    ly + layout.inventoryLineIndex,
                     hudZ,
                     invHint,
                     CPColor.C_STEEL_BLUE1(),
@@ -1242,9 +1515,9 @@ object GameScene {
                 val keySeg3 = "${GameState.keysSilver}S "
                 val keySeg4 = "${GameState.keysGold}G"
                 val keyLine = keySeg1 + keySeg2 + keySeg3 + keySeg4
-                val keyStart = hudXCenteredInSpan(rightX0, rightSpan, keyLine.length)
+                val keyStart = hudXCenteredInCluster(cx, cw, keyLine.length)
                 var kx = keyStart
-                val keysRow = layout.rightKeysRow
+                val keysRow = ly + layout.keysLineIndex
                 canv.drawString(kx, keysRow, hudZ, keySeg1, CPColor.C_GREY70(), bg)
                 kx += keySeg1.length
                 canv.drawString(kx, keysRow, hudZ, keySeg2, KeyTier.BRONZE.metalColor(), bg)
@@ -1252,19 +1525,19 @@ object GameScene {
                 canv.drawString(kx, keysRow, hudZ, keySeg3, KeyTier.SILVER.metalColor(), bg)
                 kx += keySeg3.length
                 canv.drawString(kx, keysRow, hudZ, keySeg4, KeyTier.GOLD.metalColor(), bg)
-                val barY = layout.rightBarY
+                val barY = ly + layout.hpBarLineIndex
                 canv.drawString(
-                    hudXCenteredInSpan(rightX0, rightSpan, lineControls.length),
-                    layout.rightDebugRow,
+                    hudXCenteredInCluster(cx, cw, lineControls.length),
+                    ly + layout.controlsLineIndex,
                     hudZ,
                     lineControls,
                     CPColor.C_GREY50(),
                     bg,
                 )
                 val hpPrefix = "HP "
-                val maxBar = (rightSpan - hpPrefix.length).coerceIn(8, 40)
+                val maxBar = (cw - hpPrefix.length).coerceIn(8, 40)
                 val barBlockW = hpPrefix.length + maxBar
-                val hpStartX = hudXCenteredInSpan(rightX0, rightSpan, barBlockW)
+                val hpStartX = hudXCenteredInCluster(cx, cw, barBlockW)
                 canv.drawString(hpStartX, barY, hudZ, hpPrefix, CPColor.C_WHITE(), bg)
                 val filled = (GameState.playerHealth.coerceAtMost(30).toFloat() / 30 * maxBar).toInt()
                 val barColor = when {
@@ -1293,15 +1566,14 @@ object GameScene {
                 GameState.tickQuestHudFlash()
                 if (GameState.consumeHudQuestCelebrate()) {
                     val canv = ctx.canvas
-                    val w = canv.width()
-                    GridConfig.updateOffsets(w, canv.height())
-                    val gx = GridConfig.offsetX
-                    val rightX0 = gx + GridConfig.GRID_TOTAL_WIDTH + GridConfig.HUD_GAP_BEFORE_GRID
-                    val rightSpan = (w - rightX0).coerceAtLeast(0)
-                    val centerX = rightX0 + (rightSpan + 1) / 2
+                    syncClusterLayout(canv)
+                    val cx = GridConfig.clusterOriginX
+                    val cw = GridConfig.HUD_COLUMN_WIDTH
+                    val centerX = cx + (cw + 1) / 2
                     val questLines = GameState.questHudLines()
                     val layout = computeHudLayout(canv.height(), questLines.size)
-                    val centerY = layout.rightQuestStartY + ((questLines.size - 1).coerceAtLeast(0) / 2)
+                    val cy = GridConfig.hudTopY
+                    val centerY = cy + layout.questBlockStartLine + ((questLines.size - 1).coerceAtLeast(0) / 2)
                     hudConfetti.spawnScreen(centerX, centerY)
                 }
             }

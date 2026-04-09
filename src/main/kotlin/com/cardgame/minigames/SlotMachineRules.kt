@@ -18,7 +18,8 @@ object SlotMachineRules {
         SlotMachineArt.Symbol.QUESTION -> 6
     }
 
-    fun pairPayout(bet: Int): Int = bet
+    /** Per payline: two-of-a-kind pays **2× bet** (stake back + profit), so a win beats the cost of the spin. */
+    fun pairPayout(bet: Int): Int = bet * 2
 
     /** One payline (three cells); triple uses symbol mult, any pair pays [pairPayout]. */
     fun spinPayout(

@@ -337,7 +337,7 @@ object SlotMachineScene {
                     add("3 match:" to CPColor.C_GREEN1())
                     add(" bet x mult" to CPColor.C_GREEN1())
                     add("2 match:" to CPColor.C_GREEN1())
-                    add(" +bet/line" to CPColor.C_GREEN1())
+                    add(" 2x bet/line" to CPColor.C_GREEN1())
                     add("" to CPColor.C_GREY50())
                     add("Bet $bet gp:" to CPColor.C_CYAN1())
                 }

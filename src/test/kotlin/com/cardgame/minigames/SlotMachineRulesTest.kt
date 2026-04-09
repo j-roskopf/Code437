@@ -17,13 +17,13 @@ class SlotMachineRulesTest {
     }
 
     @Test
-    fun spinPayout_anyPairPaysBet() {
+    fun spinPayout_anyPairPaysTwiceBet() {
         val bet = 50
         val a = SlotMachineArt.Symbol.APPLE
         val b = SlotMachineArt.Symbol.PEAR
-        assertEquals(bet, SlotMachineRules.spinPayout(bet, a, a, b))
-        assertEquals(bet, SlotMachineRules.spinPayout(bet, a, b, b))
-        assertEquals(bet, SlotMachineRules.spinPayout(bet, a, b, a))
+        assertEquals(bet * 2, SlotMachineRules.spinPayout(bet, a, a, b))
+        assertEquals(bet * 2, SlotMachineRules.spinPayout(bet, a, b, b))
+        assertEquals(bet * 2, SlotMachineRules.spinPayout(bet, a, b, a))
     }
 
     @Test

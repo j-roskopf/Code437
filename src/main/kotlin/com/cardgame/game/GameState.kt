@@ -457,34 +457,90 @@ object GridConfig {
     val GRID_TOTAL_WIDTH get() = COLS * CELL_WIDTH
     val GRID_TOTAL_HEIGHT get() = ROWS * CELL_HEIGHT
 
-    /** Legacy hint for HUD scale (split left/right in [GameScene]); not all lines on one side. */
-    const val HUD_LINE_COUNT = 10
-    /** Screen columns between HUD text and the grid (avoids overlap). */
-    const val HUD_GAP_BEFORE_GRID = 1
+    /** Blank lines between the HUD text block and the deck (stacked in the left column). */
+    const val GAP_LINES_HUD_TO_DECK = 1
+    /** Character columns between the left column (HUD + deck, [CELL_WIDTH] wide) and the grid. */
+    const val GAP_COLUMNS_HUD_TO_GRID = 2
 
     /**
-     * Minimum CosPlay emuterm canvas for the main game: centered grid plus left and right HUD margins
-     * (each at least [CELL_WIDTH] wide) and [HUD_GAP_BEFORE_GRID] beside the board.
+     * Upper bound for quest lines in [GameState.questHudLines] when sizing the default emuterm window.
      */
-    const val MIN_EMUTERM_COLS =
-        COLS * CELL_WIDTH + 2 * HUD_GAP_BEFORE_GRID + 2 * CELL_WIDTH
-    const val MIN_EMUTERM_ROWS = ROWS * CELL_HEIGHT
+    private const val QUEST_HUD_LINES_WORST_CASE = 10
 
-    // Dynamic offsets — grid is horizontally centered; HUD uses columns left and right of the board.
+    /**
+     * Minimum CosPlay emuterm canvas: one card-width HUD column + gap + grid, centered.
+     */
+    val MIN_EMUTERM_COLS: Int get() = CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID + GRID_TOTAL_WIDTH + 4
+
+    val MIN_EMUTERM_ROWS: Int
+        get() = clusterPixelHeight(hudTextLineCount(QUEST_HUD_LINES_WORST_CASE))
+
+    /** HUD text lines: 5 meta + quest block + 4 footer (inventory, keys, controls, HP bar). */
+    fun hudTextLineCount(questHudLineCount: Int): Int =
+        5 + questHudLineCount.coerceAtLeast(1) + 4
+
+    /** Vertical size of the game cluster (taller of the left stack vs the grid). */
+    fun clusterPixelHeight(questHudLineCount: Int): Int {
+        val hudLines = hudTextLineCount(questHudLineCount)
+        val leftColH = hudLines + GAP_LINES_HUD_TO_DECK + CELL_HEIGHT
+        return maxOf(leftColH, GRID_TOTAL_HEIGHT)
+    }
+
+    /** Width of HUD + deck column (one playing-card width). */
+    val HUD_COLUMN_WIDTH: Int get() = CELL_WIDTH
+
+    // Dynamic layout — set by [updateClusterLayout] each frame from the main game scene.
     var offsetX = 4
         private set
     var offsetY = 2
         private set
 
+    /** Top-left of the left column (HUD text + deck); width [HUD_COLUMN_WIDTH]. */
+    var clusterOriginX = 4
+        private set
+    /** Top row of the centered game cluster bounding box (max of left stack vs grid height). */
+    var clusterOriginY = 2
+        private set
+
+    /** First screen row of HUD text (may be below [clusterOriginY] when the grid is taller than the left stack). */
+    var hudTopY = 2
+        private set
+    /** Top row of the dungeon grid (may be below [clusterOriginY] when the left stack is taller). */
+    var gridTopY = 2
+        private set
+
+    /** Top-left of the face-down deck card (same size as one grid cell). */
+    var deckScreenX = 4
+        private set
+    var deckScreenY = 2
+        private set
+
+    var lastCanvasWidth = 80
+        private set
+    var lastCanvasHeight = 50
+        private set
+
     /**
-     * Center the grid on the visible canvas. CosPlay uses 0-based x/y; last column is [canvasWidth - 1].
+     * HUD + deck in a [CELL_WIDTH] column on the left; grid on the right. The cluster is centered
+     * horizontally and vertically on the canvas; the shorter column is vertically centered against the taller one.
      */
-    fun updateOffsets(canvasWidth: Int, canvasHeight: Int) {
-        val slackX = (canvasWidth - GRID_TOTAL_WIDTH).coerceAtLeast(0)
-        offsetX = (slackX + 1) / 2
-        val slackY = (canvasHeight - GRID_TOTAL_HEIGHT).coerceAtLeast(0)
-        // Integer centering leaves odd slack on the bottom; bias one row upward so margins match.
-        offsetY = (slackY + 1) / 2
+    fun updateClusterLayout(canvasWidth: Int, canvasHeight: Int, questHudLineCount: Int) {
+        lastCanvasWidth = canvasWidth
+        lastCanvasHeight = canvasHeight
+        val hudLines = hudTextLineCount(questHudLineCount)
+        val leftColH = hudLines + GAP_LINES_HUD_TO_DECK + CELL_HEIGHT
+        val gridH = GRID_TOTAL_HEIGHT
+        val clusterW = CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID + GRID_TOTAL_WIDTH
+        val clusterH = clusterPixelHeight(questHudLineCount)
+        clusterOriginX = ((canvasWidth - clusterW).coerceAtLeast(0) + 1) / 2
+        clusterOriginY = ((canvasHeight - clusterH).coerceAtLeast(0) + 1) / 2
+        val slack = gridH - leftColH
+        hudTopY = clusterOriginY + slack.coerceAtLeast(0).let { (it + 1) / 2 }
+        gridTopY = clusterOriginY + (-slack).coerceAtLeast(0).let { (it + 1) / 2 }
+        deckScreenX = clusterOriginX
+        deckScreenY = hudTopY + hudLines + GAP_LINES_HUD_TO_DECK
+        offsetX = clusterOriginX + CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID
+        offsetY = gridTopY
     }
 
     fun cellScreenX(gridX: Int) = offsetX + gridX * CELL_WIDTH
