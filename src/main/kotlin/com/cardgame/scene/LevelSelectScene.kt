@@ -27,9 +27,9 @@ object LevelSelectScene {
     private fun tryStartLevel(ctx: CPSceneObjectContext, level: Int) {
         if (!Progress.isUnlocked(level)) return
         GameState.resetForLevel(level)
-        kotlin.runCatching { ctx.deleteScene("game") }
+        kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
         ctx.addScene(GameScene.create(), false, false, false)
-        ctx.switchScene("game", false)
+        ctx.switchScene(SceneId.GAME, false)
     }
 
     fun create(): CPScene {
@@ -82,14 +82,14 @@ object LevelSelectScene {
                     KEY_8 -> tryStartLevel(ctx, 8)
                     KEY_9 -> tryStartLevel(ctx, 9)
                     KEY_0 -> tryStartLevel(ctx, 10)
-                    KEY_B, KEY_ESC -> ctx.switchScene("menu", false)
+                    KEY_B, KEY_ESC -> ctx.switchScene(SceneId.MENU, false)
                     else -> {}
                 }
             }
         }
 
         return CPScene(
-            "levelselect",
+            SceneId.LEVEL_SELECT.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

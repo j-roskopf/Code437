@@ -181,7 +181,7 @@ object InventoryScene {
         }
 
         return CPScene(
-            "inventory",
+            SceneId.INVENTORY.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

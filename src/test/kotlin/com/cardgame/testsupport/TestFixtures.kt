@@ -1,5 +1,6 @@
 package com.cardgame.testsupport
 
+import com.cardgame.game.DeckPersistence
 import com.cardgame.game.EnemyCard
 import com.cardgame.game.EnemyKind
 import com.cardgame.game.GameState
@@ -13,9 +14,19 @@ object TestFixtures {
     }
 
     fun withFreshState(level: Int = 1, block: () -> Unit) {
-        reset(level)
-        block()
-        reset(level)
+        val prevDisable = System.getProperty(DeckPersistence.PROP_DISABLE)
+        System.setProperty(DeckPersistence.PROP_DISABLE, "true")
+        try {
+            reset(level)
+            block()
+            reset(level)
+        } finally {
+            if (prevDisable == null) {
+                System.clearProperty(DeckPersistence.PROP_DISABLE)
+            } else {
+                System.setProperty(DeckPersistence.PROP_DISABLE, prevDisable)
+            }
+        }
     }
 
     fun sample(count: Int, block: () -> Unit) {

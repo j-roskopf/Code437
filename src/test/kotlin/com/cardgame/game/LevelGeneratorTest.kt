@@ -2,10 +2,33 @@ package com.cardgame.game
 
 import com.cardgame.testsupport.TestFixtures.withFreshState
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LevelGeneratorTest {
+    @Test
+    fun keyTierForLevel_usesLevelBands() {
+        assertEquals(KeyTier.BRONZE, LevelGenerator.keyTierForLevel(1))
+        assertEquals(KeyTier.BRONZE, LevelGenerator.keyTierForLevel(3))
+        assertEquals(KeyTier.SILVER, LevelGenerator.keyTierForLevel(4))
+        assertEquals(KeyTier.SILVER, LevelGenerator.keyTierForLevel(6))
+        assertEquals(KeyTier.GOLD, LevelGenerator.keyTierForLevel(7))
+    }
+
+    @Test
+    fun buildEnemyDeck_chestCardsMatchLevelTier() = withFreshState {
+        val bronze = LevelGenerator.buildEnemyDeckForLevel(2, 3000).filter { it.hazardType == ItemType.CHEST }
+        assertTrue(bronze.isNotEmpty(), "Expected some chest cards on low levels")
+        assertTrue(bronze.all { it.hazardTier == KeyTier.BRONZE })
+        val silver = LevelGenerator.buildEnemyDeckForLevel(5, 3000).filter { it.hazardType == ItemType.CHEST }
+        assertTrue(silver.isNotEmpty())
+        assertTrue(silver.all { it.hazardTier == KeyTier.SILVER })
+        val gold = LevelGenerator.buildEnemyDeckForLevel(10, 3000).filter { it.hazardType == ItemType.CHEST }
+        assertTrue(gold.isNotEmpty())
+        assertTrue(gold.all { it.hazardTier == KeyTier.GOLD })
+    }
+
     @Test
     fun gambling_neverRollsWithZeroMoney() = withFreshState {
         repeat(800) {

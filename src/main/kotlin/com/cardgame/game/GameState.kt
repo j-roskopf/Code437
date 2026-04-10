@@ -2,6 +2,8 @@ package com.cardgame.game
 
 import com.cardgame.art.CardArt
 import com.cardgame.quest.ActiveQuest
+import com.cardgame.scene.SceneId
+import com.cardgame.scene.ShopDismissAction
 import com.cardgame.quest.QuestCountersSnapshot
 import com.cardgame.quest.QuestSystem
 import com.cardgame.quest.QuestTargetType
@@ -14,6 +16,31 @@ enum class RunEndKind {
 }
 
 object GameState {
+    data class EnemyDeckCard(
+        val enemyKind: EnemyKind? = null,
+        val isElite: Boolean = false,
+        val hazardType: ItemType? = null,
+        /** Set when [hazardType] is [ItemType.CHEST]; ignored for other hazards. */
+        val hazardTier: KeyTier? = null,
+    )
+
+    data class DeckSnapshot(
+        val draw: Int,
+        val discard: Int,
+        val top: String,
+    )
+
+    enum class PlayerDeckCard(val label: String) {
+        POTION("Potion"),
+        SHIELD("Shield"),
+        SWORD("Sword"),
+        BOW_ARROW("Bow+Arrow"),
+        CAMPFIRE("Campfire"),
+        ARMOR("Armor"),
+        KEY("Key"),
+        CHEST("Chest"),
+    }
+
     /** Chosen on the character screen; not cleared by [resetForLevel]. */
     var selectedPlayerCharacter: PlayerCharacter = PlayerCharacter.MAGE
 
@@ -105,20 +132,74 @@ object GameState {
     /** 1-based; set before [GameScene.create]. */
     var currentLevel: Int = 1
 
-    /** Where [ShopScene] goes on Back: `"menu"` or `"levelcomplete"`. */
-    var shopReturnScene: String = "menu"
+    /** How [ShopScene] should exit when the player presses Back / ESC. */
+    var shopDismissAction: ShopDismissAction = ShopDismissAction.SwitchTo(SceneId.MENU)
 
-    /** Where [MiniGamesHubScene] goes on Back: `"menu"` or `"game"` (from gambling tile). */
-    var minigamesReturnScene: String = "menu"
+    /** Where [MiniGamesHubScene] goes on Back (e.g. from the gambling tile → [SceneId.GAME]). */
+    var minigamesReturnScene: SceneId = SceneId.MENU
 
-    /** Where [InventoryScene] returns: `"menu"` or `"game"`. */
-    var inventoryReturnScene: String = "menu"
+    /** Where [InventoryScene] returns after Back / ESC / I. */
+    var inventoryReturnScene: SceneId = SceneId.MENU
 
-    /** Debug-only: reveal which visible item/enemy tile hides a secret room trigger. */
-    var debugRevealSecrets: Boolean = true
+    /**
+     * Toggle with Z in [GameScene]. When true: highlights secret-room tiles and the player takes
+     * no HP loss from combat, spikes, or bomb blasts.
+     */
+    var debugMode: Boolean = false
+
+    /**
+     * When an elite kill pushes [score] to the current level target, we defer the level-complete
+     * transition until the player picks up a grid [ItemType.KEY] (the elite drop), so they are not
+     * pulled away before collecting it.
+     */
+    var deferLevelCompleteForEliteKey: Boolean = false
 
     /** Set before switching to the run summary scene (death vs full run win). */
     var runEndKind: RunEndKind = RunEndKind.DEATH
+
+    /**
+     * Cards the shop may roll for sale. [PlayerDeckCard.CHEST] is excluded — treasure chests spawn
+     * from the enemy deck only, not as purchased player-deck cards.
+     */
+    private val SHOP_OFFER_POOL = listOf(
+        PlayerDeckCard.POTION,
+        PlayerDeckCard.SHIELD,
+        PlayerDeckCard.SWORD,
+        PlayerDeckCard.BOW_ARROW,
+        PlayerDeckCard.CAMPFIRE,
+        PlayerDeckCard.ARMOR,
+        PlayerDeckCard.KEY,
+    )
+    private const val ENEMY_DECK_BUILD_SIZE = 60
+
+    private val enemyDeckDraw: MutableList<EnemyDeckCard> = mutableListOf()
+    private val enemyDeckDiscard: MutableList<EnemyDeckCard> = mutableListOf()
+    private val playerDeckDraw: MutableList<PlayerDeckCard> = mutableListOf()
+    private val playerDeckDiscard: MutableList<PlayerDeckCard> = mutableListOf()
+    private val characterDecks: MutableMap<PlayerCharacter, MutableList<PlayerDeckCard>> =
+        mutableMapOf(
+            PlayerCharacter.KNIGHT to mutableListOf(
+                PlayerDeckCard.POTION,
+                PlayerDeckCard.SHIELD,
+                PlayerDeckCard.SHIELD,
+                PlayerDeckCard.SWORD,
+                PlayerDeckCard.SWORD,
+            ),
+            PlayerCharacter.THIEF to mutableListOf(
+                PlayerDeckCard.BOW_ARROW,
+                PlayerDeckCard.BOW_ARROW,
+                PlayerDeckCard.POTION,
+                PlayerDeckCard.CAMPFIRE,
+                PlayerDeckCard.SWORD,
+            ),
+            PlayerCharacter.MAGE to mutableListOf(
+                PlayerDeckCard.POTION,
+                PlayerDeckCard.POTION,
+                PlayerDeckCard.POTION,
+                PlayerDeckCard.CAMPFIRE,
+                PlayerDeckCard.ARMOR,
+            ),
+        )
 
     /** Accepted quests in progress (progress counts only actions after acceptance). */
     val activeQuests: MutableList<ActiveQuest> = mutableListOf()
@@ -210,9 +291,9 @@ object GameState {
         keysBronze = 0
         keysSilver = 0
         keysGold = 0
-        shopReturnScene = "menu"
-        minigamesReturnScene = "menu"
-        inventoryReturnScene = "menu"
+        shopDismissAction = ShopDismissAction.SwitchTo(SceneId.MENU)
+        minigamesReturnScene = SceneId.MENU
+        inventoryReturnScene = SceneId.MENU
         gameOver = false
         playerGridX = 0
         playerGridY = 0
@@ -231,6 +312,9 @@ object GameState {
         for (i in equippedItems.indices) equippedItems[i] = null
         temporaryShield = 0
         wallChipAtkPenaltySteps = 0
+        deferLevelCompleteForEliteKey = false
+        resetPlayerDeck()
+        rebuildEnemyDeckForCurrentLevel()
     }
 
     fun addMoney(amount: Int) {
@@ -256,6 +340,325 @@ object GameState {
             gameOver = false
             playerGridX = 0
             playerGridY = 0
+            deferLevelCompleteForEliteKey = false
+            rebuildEnemyDeckForCurrentLevel()
+        }
+    }
+
+    fun purchaseDeckCardOptions(): List<PlayerDeckCard> =
+        List(3) { SHOP_OFFER_POOL.random() }
+
+    fun addCardToPlayerDeck(card: PlayerDeckCard) {
+        if (card != PlayerDeckCard.CHEST && card !in SHOP_OFFER_POOL) return
+        val deck = characterDecks.getOrPut(selectedPlayerCharacter) { mutableListOf() }
+        deck.add(card)
+        playerDeckDiscard.add(card)
+        persistDecksIfEnabled()
+    }
+
+    fun playerDeckSnapshot(): DeckSnapshot {
+        val top = playerDeckDraw.firstOrNull()?.label ?: "reshuffle"
+        return DeckSnapshot(playerDeckDraw.size, playerDeckDiscard.size, top)
+    }
+
+    fun characterDeckPreview(character: PlayerCharacter): String {
+        val d = characterDecks[character].orEmpty()
+        val counts = PlayerDeckCard.entries.associateWith { c -> d.count { it == c } }
+            .filter { it.value > 0 }
+            .entries
+            .joinToString(" ") { "${it.value}${it.key.label.take(1)}" }
+        return if (counts.isBlank()) "empty" else counts
+    }
+
+    fun characterDeckCards(character: PlayerCharacter): List<PlayerDeckCard> =
+        characterDecks[character]?.toList() ?: emptyList()
+
+    fun enemyDeckSnapshot(): DeckSnapshot {
+        val top = enemyDeckDraw.firstOrNull()?.let {
+            when {
+                it.hazardType == ItemType.CHEST && it.hazardTier != null ->
+                    "${it.hazardType.label} ${it.hazardTier.name.take(1)}"
+                it.hazardType != null -> it.hazardType.label
+                else -> (it.enemyKind?.displayName ?: "Unknown") + if (it.isElite) "★" else ""
+            }
+        } ?: "reshuffle"
+        return DeckSnapshot(enemyDeckDraw.size, enemyDeckDiscard.size, top)
+    }
+
+    private fun resetPlayerDeck() {
+        playerDeckDraw.clear()
+        playerDeckDiscard.clear()
+        val deck = characterDecks[selectedPlayerCharacter].orEmpty()
+        if (deck.isEmpty()) {
+            playerDeckDraw.addAll(
+                listOf(
+                    PlayerDeckCard.POTION,
+                    PlayerDeckCard.POTION,
+                    PlayerDeckCard.POTION,
+                    PlayerDeckCard.CAMPFIRE,
+                    PlayerDeckCard.ARMOR,
+                )
+            )
+        } else {
+            // Preserve persistent deck order; draws consume left-to-right without random picking.
+            playerDeckDraw.addAll(deck)
+        }
+    }
+
+    fun rebuildEnemyDeckForCurrentLevel() {
+        enemyDeckDraw.clear()
+        enemyDeckDiscard.clear()
+        enemyDeckDraw.addAll(LevelGenerator.buildEnemyDeckForLevel(currentLevel, ENEMY_DECK_BUILD_SIZE).shuffled())
+        persistDecksIfEnabled()
+    }
+
+    private fun drawEnemyDeckCard(): EnemyDeckCard {
+        if (enemyDeckDraw.isEmpty()) {
+            if (enemyDeckDiscard.isNotEmpty()) {
+                enemyDeckDraw.addAll(enemyDeckDiscard.shuffled())
+                enemyDeckDiscard.clear()
+            } else {
+                rebuildEnemyDeckForCurrentLevel()
+            }
+        }
+        if (enemyDeckDraw.isEmpty()) {
+            return EnemyDeckCard(enemyKind = EnemyKind.RAT)
+        }
+        return enemyDeckDraw.removeAt(0)
+    }
+
+    private fun drawPlayerDeckCard(): PlayerDeckCard {
+        if (playerDeckDraw.isEmpty()) {
+            if (playerDeckDiscard.isNotEmpty()) {
+                // Cycle discard back into draw in order (queue semantics).
+                playerDeckDraw.addAll(playerDeckDiscard)
+                playerDeckDiscard.clear()
+            } else {
+                resetPlayerDeck()
+            }
+        }
+        return playerDeckDraw.removeAt(0)
+    }
+
+    private fun hasVisibleEquipmentOnBoard(existingItems: List<GridItem>): Boolean =
+        existingItems.any { !it.collected && it.type.equipmentSlot() != null }
+
+    private fun drawPlayerDeckCardForSpawn(existingItems: List<GridItem>): PlayerDeckCard {
+        val maxAttempts = (playerDeckDraw.size + playerDeckDiscard.size).coerceAtLeast(1)
+        repeat(maxAttempts) {
+            val c = drawPlayerDeckCard()
+            // At most one equipment tile visible at once.
+            if (c == PlayerDeckCard.ARMOR && hasVisibleEquipmentOnBoard(existingItems)) {
+                playerDeckDraw.add(c)
+                return@repeat
+            }
+            return c
+        }
+        // If we couldn't find a legal card (e.g., deck is all ARMOR while one equipment tile is up),
+        // fall back to a non-equipment utility card to avoid deadlock.
+        return PlayerDeckCard.POTION
+    }
+
+    private fun toDeckCard(itemType: ItemType): PlayerDeckCard? = when (itemType) {
+        ItemType.HEALTH_POTION -> PlayerDeckCard.POTION
+        ItemType.SHIELD -> PlayerDeckCard.SHIELD
+        ItemType.ATTACK_BOOST -> PlayerDeckCard.SWORD
+        ItemType.REST -> PlayerDeckCard.CAMPFIRE
+        ItemType.HAND_ARMOR, ItemType.HELMET, ItemType.NECKLACE,
+        ItemType.CHEST_ARMOR, ItemType.LEGGINGS, ItemType.BOOTS_ARMOR -> PlayerDeckCard.ARMOR
+        else -> null
+    }
+
+    fun deckCardToItemType(card: PlayerDeckCard): ItemType = when (card) {
+        PlayerDeckCard.POTION -> ItemType.HEALTH_POTION
+        PlayerDeckCard.SHIELD -> ItemType.SHIELD
+        PlayerDeckCard.SWORD -> ItemType.ATTACK_BOOST
+        PlayerDeckCard.BOW_ARROW -> ItemType.ATTACK_BOOST
+        PlayerDeckCard.CAMPFIRE -> ItemType.REST
+        PlayerDeckCard.ARMOR -> ItemType.HAND_ARMOR
+        PlayerDeckCard.KEY -> ItemType.KEY
+        PlayerDeckCard.CHEST -> ItemType.CHEST
+    }
+
+    fun onSpawnedItemResolved(item: GridItem) {
+        if (item.type == ItemType.KEY) {
+            deferLevelCompleteForEliteKey = false
+        }
+        when {
+            item.type == ItemType.CHEST -> {
+                if (item.spawnedFromEnemyDeck) {
+                    enemyDeckDiscard.add(EnemyDeckCard(hazardType = ItemType.CHEST, hazardTier = item.tier))
+                } else {
+                    playerDeckDiscard.add(PlayerDeckCard.CHEST)
+                }
+            }
+            item.type == ItemType.SPIKES || item.type == ItemType.BOMB || item.type == ItemType.WALL -> {
+                enemyDeckDiscard.add(EnemyDeckCard(hazardType = item.type))
+            }
+            else -> {
+                toDeckCard(item.type)?.let { dc ->
+                    if (dc == PlayerDeckCard.ARMOR) {
+                        // Armor is consumed permanently; don't cycle it back into the draw/discard loop.
+                        val deck = characterDecks.getOrPut(selectedPlayerCharacter) { mutableListOf() }
+                        val idx = deck.indexOfFirst { it == PlayerDeckCard.ARMOR }
+                        if (idx >= 0) deck.removeAt(idx) else Unit
+                    } else {
+                        playerDeckDiscard.add(dc)
+                    }
+                }
+            }
+        }
+        persistDecksIfEnabled()
+    }
+
+    fun onSpawnedEnemyResolved(enemy: EnemyCard) {
+        enemyDeckDiscard.add(EnemyDeckCard(enemyKind = enemy.kind, isElite = enemy.isElite))
+        persistDecksIfEnabled()
+    }
+
+    fun drawSpawnForCell(
+        gridX: Int,
+        gridY: Int,
+        existingItems: List<GridItem>,
+        existingEnemies: List<EnemyCard>,
+    ): Pair<GridItem?, EnemyCard?> {
+        val spawnEnemySide = Random.nextBoolean()
+        val result = if (spawnEnemySide) {
+            val d = drawEnemyDeckCard()
+            if (d.hazardType != null) {
+                val spawned = when (d.hazardType) {
+                    ItemType.CHEST -> {
+                        val tier = d.hazardTier ?: LevelGenerator.keyTierForLevel(currentLevel)
+                        LevelGenerator.spawnChestAtTier(
+                            tier,
+                            gridX,
+                            gridY,
+                            spawnedFromEnemyDeck = true,
+                        )
+                    }
+                    else -> LevelGenerator.spawnItemFromType(
+                        d.hazardType,
+                        gridX,
+                        gridY,
+                        existingItems,
+                        existingEnemies,
+                    )
+                }
+                Pair(spawned, null)
+            } else {
+                Pair(
+                    null,
+                    LevelGenerator.spawnEnemyFromSpec(
+                        kind = d.enemyKind ?: EnemyKind.RAT,
+                        elite = d.isElite,
+                        gridX = gridX,
+                        gridY = gridY,
+                        existingEnemies = existingEnemies,
+                        existingItems = existingItems,
+                    )
+                )
+            }
+        } else {
+            val c = drawPlayerDeckCardForSpawn(existingItems)
+            Pair(LevelGenerator.spawnItemFromType(deckCardToItemType(c), gridX, gridY, existingItems, existingEnemies), null)
+        }
+        persistDecksIfEnabled()
+        return result
+    }
+
+    /** Call once at process start (after [GameState] defaults exist) to restore saved decks. */
+    fun loadDeckPersistenceAtStartup() {
+        if (!DeckPersistence.enabled()) return
+        try {
+            val text = DeckPersistence.load() ?: return
+            val lines = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+            if (lines.firstOrNull() != "v1") return
+            val map = lines.drop(1).mapNotNull { line ->
+                val idx = line.indexOf('=')
+                if (idx <= 0) null else line.take(idx) to line.drop(idx + 1)
+            }.toMap()
+            map["sel"]?.let { sel ->
+                runCatching { selectedPlayerCharacter = PlayerCharacter.valueOf(sel) }
+            }
+            for (ch in PlayerCharacter.entries) {
+                val csv = map["cd_${ch.name}"] ?: continue
+                val list = characterDecks.getOrPut(ch) { mutableListOf() }
+                list.clear()
+                if (csv.isNotBlank()) {
+                    csv.split(",").forEach { part ->
+                        runCatching { list.add(PlayerDeckCard.valueOf(part)) }
+                    }
+                }
+            }
+            fun parsePlayerCards(key: String, target: MutableList<PlayerDeckCard>) {
+                val csv = map[key] ?: return
+                target.clear()
+                if (csv.isBlank()) return
+                csv.split(",").forEach { part ->
+                    runCatching { target.add(PlayerDeckCard.valueOf(part)) }
+                }
+            }
+            parsePlayerCards("pd", playerDeckDraw)
+            parsePlayerCards("prd", playerDeckDiscard)
+            fun parseEnemyLine(key: String, target: MutableList<EnemyDeckCard>) {
+                val raw = map[key] ?: return
+                target.clear()
+                if (raw.isBlank()) return
+                for (seg in raw.split('|')) {
+                    if (seg.isBlank()) continue
+                    decodeEnemyDeckCardPersist(seg)?.let { target.add(it) }
+                }
+            }
+            parseEnemyLine("ed", enemyDeckDraw)
+            parseEnemyLine("edd", enemyDeckDiscard)
+        } catch (_: Exception) {
+            return
+        }
+    }
+
+    fun persistDecksIfEnabled() {
+        if (!DeckPersistence.enabled()) return
+        val sb = StringBuilder()
+        sb.appendLine("v1")
+        sb.appendLine("sel=${selectedPlayerCharacter.name}")
+        for (ch in PlayerCharacter.entries) {
+            val cards = characterDecks[ch].orEmpty().joinToString(",") { it.name }
+            sb.appendLine("cd_${ch.name}=$cards")
+        }
+        sb.appendLine("pd=${playerDeckDraw.joinToString(",") { it.name }}")
+        sb.appendLine("prd=${playerDeckDiscard.joinToString(",") { it.name }}")
+        sb.appendLine("ed=${enemyDeckDraw.joinToString("|") { encodeEnemyDeckCardPersist(it) }}")
+        sb.appendLine("edd=${enemyDeckDiscard.joinToString("|") { encodeEnemyDeckCardPersist(it) }}")
+        DeckPersistence.save(sb.toString())
+    }
+
+    private fun encodeEnemyDeckCardPersist(c: EnemyDeckCard): String =
+        if (c.hazardType != null) {
+            val tier = c.hazardTier?.name ?: ""
+            "h,${c.hazardType.name},$tier"
+        } else {
+            val kind = c.enemyKind?.name ?: EnemyKind.RAT.name
+            "e,$kind,${if (c.isElite) 1 else 0}"
+        }
+
+    private fun decodeEnemyDeckCardPersist(seg: String): EnemyDeckCard? {
+        val p = seg.split(',')
+        if (p.isEmpty()) return null
+        return when (p[0]) {
+            "e" -> {
+                if (p.size < 3) return null
+                val kind = runCatching { EnemyKind.valueOf(p[1]) }.getOrNull() ?: return null
+                EnemyDeckCard(enemyKind = kind, isElite = p[2] == "1")
+            }
+            "h" -> {
+                if (p.size < 2) return null
+                val hz = runCatching { ItemType.valueOf(p[1]) }.getOrNull() ?: return null
+                val tier = p.getOrNull(2)?.takeIf { it.isNotBlank() }?.let { t ->
+                    runCatching { KeyTier.valueOf(t) }.getOrNull()
+                }
+                EnemyDeckCard(hazardType = hz, hazardTier = tier)
+            }
+            else -> null
         }
     }
 
@@ -430,6 +833,8 @@ data class GridItem(
     var wallHp: Int = 0,
     /** Hidden flag: stepping here with any key opens a one-shot secret room instead of normal interaction. */
     var secretRoom: Boolean = false,
+    /** When true, [onSpawnedItemResolved] returns this chest to the enemy discard pile (not the player deck). */
+    var spawnedFromEnemyDeck: Boolean = false,
 )
 
 data class EnemyCard(
@@ -439,7 +844,7 @@ data class EnemyCard(
     var gridX: Int,
     var gridY: Int,
     var defeated: Boolean = false,
-    /** At most one non-defeated elite on the grid at a time; higher stats; gold or key on kill. */
+    /** At most one non-defeated elite on the grid at a time; higher stats; key tile spawns on defeat. */
     val isElite: Boolean = false,
     /** Hidden flag: stepping here with any key opens a one-shot secret room instead of combat. */
     var secretRoom: Boolean = false,
@@ -479,11 +884,9 @@ object GridConfig {
     fun hudTextLineCount(questHudLineCount: Int): Int =
         5 + questHudLineCount.coerceAtLeast(1) + 4
 
-    /** Vertical size of the game cluster (taller of the left stack vs the grid). */
+    /** Vertical size of the game cluster. Left HUD/deck column is fixed to thirds of board height. */
     fun clusterPixelHeight(questHudLineCount: Int): Int {
-        val hudLines = hudTextLineCount(questHudLineCount)
-        val leftColH = hudLines + GAP_LINES_HUD_TO_DECK + CELL_HEIGHT
-        return maxOf(leftColH, GRID_TOTAL_HEIGHT)
+        return GRID_TOTAL_HEIGHT
     }
 
     /** Width of HUD + deck column (one playing-card width). */
@@ -509,10 +912,15 @@ object GridConfig {
     var gridTopY = 2
         private set
 
-    /** Top-left of the face-down deck card (same size as one grid cell). */
+    /** Top-left of deck cards (enemy top + player bottom share the same X). */
     var deckScreenX = 4
         private set
+    /** Legacy alias used by older animation code; points to [playerDeckScreenY]. */
     var deckScreenY = 2
+        private set
+    var enemyDeckScreenY = 2
+        private set
+    var playerDeckScreenY = 2
         private set
 
     var lastCanvasWidth = 80
@@ -527,18 +935,18 @@ object GridConfig {
     fun updateClusterLayout(canvasWidth: Int, canvasHeight: Int, questHudLineCount: Int) {
         lastCanvasWidth = canvasWidth
         lastCanvasHeight = canvasHeight
-        val hudLines = hudTextLineCount(questHudLineCount)
-        val leftColH = hudLines + GAP_LINES_HUD_TO_DECK + CELL_HEIGHT
         val gridH = GRID_TOTAL_HEIGHT
         val clusterW = CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID + GRID_TOTAL_WIDTH
         val clusterH = clusterPixelHeight(questHudLineCount)
         clusterOriginX = ((canvasWidth - clusterW).coerceAtLeast(0) + 1) / 2
         clusterOriginY = ((canvasHeight - clusterH).coerceAtLeast(0) + 1) / 2
-        val slack = gridH - leftColH
-        hudTopY = clusterOriginY + slack.coerceAtLeast(0).let { (it + 1) / 2 }
-        gridTopY = clusterOriginY + (-slack).coerceAtLeast(0).let { (it + 1) / 2 }
+        hudTopY = clusterOriginY
+        gridTopY = clusterOriginY
+        val oneThird = (gridH / 3).coerceAtLeast(CELL_HEIGHT)
         deckScreenX = clusterOriginX
-        deckScreenY = hudTopY + hudLines + GAP_LINES_HUD_TO_DECK
+        enemyDeckScreenY = hudTopY
+        playerDeckScreenY = hudTopY + oneThird * 2
+        deckScreenY = playerDeckScreenY
         offsetX = clusterOriginX + CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID
         offsetY = gridTopY
     }
@@ -548,6 +956,13 @@ object GridConfig {
 }
 
 object LevelGenerator {
+    /** Bronze keys/chests on early floors, silver mid, gold late ([GameState.currentLevel] bands). */
+    fun keyTierForLevel(level: Int): KeyTier = when {
+        level <= 3 -> KeyTier.BRONZE
+        level <= 6 -> KeyTier.SILVER
+        else -> KeyTier.GOLD
+    }
+
     /** Share of item spawns that roll a hazard ([ItemType.SPIKES] / [ItemType.BOMB]); rest use normal loot. */
     private const val HAZARD_SPAWN_CHANCE = 0.02f
     /** Chance to place one hidden secret-room trigger on a normal item/enemy tile. */
@@ -560,6 +975,9 @@ object LevelGenerator {
     /** Target chance for wall on non-hazard item rolls (when walls are allowed). */
     private const val WALL_KEEP_CHANCE = 0.15f
     private const val WALL_DURABILITY = 2
+    private const val ELITE_CHANCE = 0.18f
+    /** Share of non-wall enemy-deck slots that spawn a tiered [ItemType.CHEST] instead of an enemy. */
+    private const val CHEST_IN_ENEMY_DECK_CHANCE = 0.07f
 
     /**
      * After blocking already-equipped gear, prefer non-equipment most of the time so armor is rarer.
@@ -689,6 +1107,104 @@ object LevelGenerator {
         )
     }
 
+    fun spawnChestAtTier(
+        tier: KeyTier,
+        gridX: Int,
+        gridY: Int,
+        spawnedFromEnemyDeck: Boolean = false,
+    ): GridItem {
+        val value = when (tier) {
+            KeyTier.BRONZE -> Random.nextInt(15, 33)
+            KeyTier.SILVER -> Random.nextInt(26, 52)
+            KeyTier.GOLD -> Random.nextInt(38, 76)
+        }
+        return GridItem(
+            ItemType.CHEST,
+            value,
+            gridX,
+            gridY,
+            artVariant = tier.ordinal,
+            tier = tier,
+            secretRoom = false,
+            spawnedFromEnemyDeck = spawnedFromEnemyDeck,
+        )
+    }
+
+    fun spawnKeyAtTier(
+        tier: KeyTier,
+        gridX: Int,
+        gridY: Int,
+        existingItems: List<GridItem> = emptyList(),
+        existingEnemies: List<EnemyCard> = emptyList(),
+    ): GridItem {
+        val hasSecretRoomAlready =
+            existingItems.any { !it.collected && it.secretRoom } ||
+                existingEnemies.any { !it.defeated && it.secretRoom }
+        val secretRoom =
+            !hasSecretRoomAlready && Random.nextFloat() < SECRET_ROOM_CHANCE
+        return GridItem(
+            ItemType.KEY,
+            0,
+            gridX,
+            gridY,
+            artVariant = tier.ordinal,
+            tier = tier,
+            secretRoom = secretRoom,
+        )
+    }
+
+    fun spawnItemFromType(
+        type: ItemType,
+        gridX: Int,
+        gridY: Int,
+        existingItems: List<GridItem> = emptyList(),
+        existingEnemies: List<EnemyCard> = emptyList(),
+    ): GridItem {
+        if (type == ItemType.CHEST) return randomItemAt(gridX, gridY, existingItems, existingEnemies)
+        val base = randomItemAt(gridX, gridY, existingItems, existingEnemies)
+        if (base.type == type) return base
+        val tier = KeyTier.entries.random()
+        val value = when (type) {
+            ItemType.HEALTH_POTION -> Random.nextInt(3, 8)
+            ItemType.ATTACK_BOOST -> Random.nextInt(1, 4)
+            ItemType.SHIELD -> Random.nextInt(2, 6)
+            ItemType.KEY, ItemType.SHOP, ItemType.GAMBLING, ItemType.SPIKES, ItemType.BOMB,
+            ItemType.WALL, ItemType.QUEST, ItemType.REST, ItemType.HELMET, ItemType.NECKLACE,
+            ItemType.CHEST_ARMOR, ItemType.LEGGINGS, ItemType.BOOTS_ARMOR -> 0
+            ItemType.HAND_ARMOR -> 1
+            ItemType.CHEST -> 0
+        }
+        val variants = CardArt.itemVariantCount(type)
+        val artVariant = when (type) {
+            ItemType.KEY -> tier.ordinal
+            else -> if (variants <= 1) 0 else Random.nextInt(variants)
+        }
+        val itemTier = if (type == ItemType.KEY) tier else KeyTier.BRONZE
+        val bombTicks = if (type == ItemType.BOMB) 5 else 0
+        val wallHp = if (type == ItemType.WALL) WALL_DURABILITY else 0
+        val hasSecretRoomAlready =
+            existingItems.any { !it.collected && it.secretRoom } ||
+                existingEnemies.any { !it.defeated && it.secretRoom }
+        val secretEligible =
+            type != ItemType.CHEST &&
+                type != ItemType.SHOP &&
+                type != ItemType.GAMBLING &&
+                type != ItemType.SPIKES &&
+                type != ItemType.BOMB &&
+                type != ItemType.WALL &&
+                type != ItemType.QUEST &&
+                type != ItemType.REST
+        val secretRoom = !hasSecretRoomAlready && secretEligible && Random.nextFloat() < SECRET_ROOM_CHANCE
+        return GridItem(
+            type, value, gridX, gridY,
+            artVariant = artVariant,
+            tier = itemTier,
+            bombTicks = bombTicks,
+            wallHp = wallHp,
+            secretRoom = secretRoom,
+        )
+    }
+
     /**
      * @param existingEnemies if any non-defeated [EnemyCard.isElite] exists, a new elite will not be rolled
      * (at most one elite tile on the board).
@@ -725,6 +1241,63 @@ object LevelGenerator {
         )
     }
 
+    fun spawnEnemyFromSpec(
+        kind: EnemyKind,
+        elite: Boolean,
+        gridX: Int,
+        gridY: Int,
+        existingEnemies: List<EnemyCard> = emptyList(),
+        existingItems: List<GridItem> = emptyList(),
+    ): EnemyCard {
+        val (health, attack) = if (elite) {
+            Pair(Random.nextInt(12, 22), Random.nextInt(5, 10))
+        } else {
+            Pair(Random.nextInt(3, 10), Random.nextInt(2, 6))
+        }
+        val hasSecretRoomAlready =
+            existingItems.any { !it.collected && it.secretRoom } ||
+                existingEnemies.any { !it.defeated && it.secretRoom }
+        val secretRoom = !hasSecretRoomAlready && Random.nextFloat() < SECRET_ROOM_CHANCE
+        return EnemyCard(
+            kind = kind,
+            health = health,
+            attack = attack,
+            gridX = gridX,
+            gridY = gridY,
+            defeated = false,
+            isElite = elite,
+            secretRoom = secretRoom,
+        )
+    }
+
+    fun buildEnemyDeckForLevel(level: Int, count: Int): List<GameState.EnemyDeckCard> {
+        val deck = mutableListOf<GameState.EnemyDeckCard>()
+        val pool = LevelConfig.enemyKindsForLevel(level).ifEmpty { listOf(EnemyKind.RAT) }
+        repeat(count.coerceAtLeast(1)) {
+            if (Random.nextFloat() < HAZARD_SPAWN_CHANCE) {
+                val hz = if (Random.nextBoolean()) ItemType.SPIKES else ItemType.BOMB
+                deck.add(GameState.EnemyDeckCard(hazardType = hz))
+            } else if (Random.nextFloat() < WALL_KEEP_CHANCE) {
+                deck.add(GameState.EnemyDeckCard(hazardType = ItemType.WALL))
+            } else if (Random.nextFloat() < CHEST_IN_ENEMY_DECK_CHANCE) {
+                deck.add(
+                    GameState.EnemyDeckCard(
+                        hazardType = ItemType.CHEST,
+                        hazardTier = keyTierForLevel(level),
+                    )
+                )
+            } else {
+                deck.add(
+                    GameState.EnemyDeckCard(
+                        enemyKind = pool.random(),
+                        isElite = Random.nextFloat() < ELITE_CHANCE,
+                    )
+                )
+            }
+        }
+        return deck
+    }
+
     /**
      * Fills every grid cell except [playerCell] with a random mix of items and enemies.
      * Refills are independent of what was on a tile before — any cell can become item or enemy.
@@ -737,10 +1310,11 @@ object LevelGenerator {
         }.filter { it != playerCell }.shuffled()
 
         for (pos in cells) {
-            if (Random.nextBoolean()) {
-                items.add(randomItemAt(pos.first, pos.second, items, enemies))
-            } else {
-                enemies.add(randomEnemyAt(pos.first, pos.second, enemies, items))
+            val spawn = GameState.drawSpawnForCell(pos.first, pos.second, items, enemies)
+            if (spawn.first != null) {
+                items.add(spawn.first!!)
+            } else if (spawn.second != null) {
+                enemies.add(spawn.second!!)
             }
         }
         ensureOriginNotFullyBlockedByChests(items)

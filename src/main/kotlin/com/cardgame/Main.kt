@@ -6,7 +6,9 @@ import com.cardgame.scene.InventoryScene
 import com.cardgame.scene.LevelCompleteScene
 import com.cardgame.scene.LevelSelectScene
 import com.cardgame.scene.CharacterSelectScene
+import com.cardgame.game.GameState
 import com.cardgame.game.GridConfig
+import com.cardgame.scene.SceneId
 import com.cardgame.scene.MenuScene
 import com.cardgame.scene.MiniGamesHubScene
 import com.cardgame.scene.QuestScene
@@ -60,6 +62,13 @@ fun main(args: Array<String>) {
 
     CPEngine.init(gameInfo, emuTerm)
 
+    GameState.loadDeckPersistenceAtStartup()
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            runCatching { GameState.persistDecksIfEnabled() }
+        }
+    )
+
     if (emuTerm && !wantsWindowed(args) && wantsFullscreenHook(args)) {
         EmutermFullscreen.startWatcher("Code 437")
     }
@@ -77,7 +86,7 @@ fun main(args: Array<String>) {
             GameOverScene.create(),
             InventoryScene.create()
         )
-        CPEngine.startGame("menu", scenes)
+        CPEngine.startGame(SceneId.MENU.id, scenes)
     } finally {
         CPEngine.dispose()
     }

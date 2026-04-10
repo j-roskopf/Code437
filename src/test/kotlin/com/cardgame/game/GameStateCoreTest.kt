@@ -1,5 +1,7 @@
 package com.cardgame.game
 
+import com.cardgame.scene.SceneId
+import com.cardgame.scene.ShopDismissAction
 import com.cardgame.testsupport.TestFixtures.withFreshState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -16,8 +18,8 @@ class GameStateCoreTest {
         GameState.keysBronze = 2
         GameState.keysSilver = 3
         GameState.keysGold = 4
-        GameState.shopReturnScene = "game"
-        GameState.inventoryReturnScene = "game"
+        GameState.shopDismissAction = ShopDismissAction.SwitchTo(SceneId.GAME)
+        GameState.inventoryReturnScene = SceneId.GAME
         GameState.gameOver = true
         GameState.addTemporaryShield(8)
         GameState.applyWallChipPenalty()
@@ -33,8 +35,8 @@ class GameStateCoreTest {
         assertEquals(0, GameState.keysBronze)
         assertEquals(0, GameState.keysSilver)
         assertEquals(0, GameState.keysGold)
-        assertEquals("menu", GameState.shopReturnScene)
-        assertEquals("menu", GameState.inventoryReturnScene)
+        assertEquals(ShopDismissAction.SwitchTo(SceneId.MENU), GameState.shopDismissAction)
+        assertEquals(SceneId.MENU, GameState.inventoryReturnScene)
         assertFalse(GameState.gameOver)
         assertEquals(0, GameState.temporaryShield)
         assertEquals(0, GameState.wallChipAtkPenaltySteps)

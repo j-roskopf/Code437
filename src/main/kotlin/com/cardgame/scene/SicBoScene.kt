@@ -98,7 +98,7 @@ object SicBoScene {
         val shaders = emptyScalaSeq()
         val tags = emptyStringSet()
 
-        val useRunGold = GameState.minigamesReturnScene == "game"
+        val useRunGold = GameState.minigamesReturnScene == SceneId.GAME
         var gold = if (useRunGold) GameState.money else START_GOLD
         var sessionPeak = gold
         var betIndex = 0
@@ -386,8 +386,8 @@ object SicBoScene {
                     KEY_SPACE -> if (gold > 0) beginRoll()
                     KEY_B, KEY_ESC -> {
                         if (!useRunGold) MiniGameScores.recordSicboPeakGold(sessionPeak)
-                        ctx.switchScene("minigames", false)
-                        kotlin.runCatching { ctx.deleteScene("sicbo") }
+                        ctx.switchScene(SceneId.MINIGAMES, false)
+                        kotlin.runCatching { ctx.deleteScene(SceneId.SICBO) }
                     }
                     else -> {}
                 }
@@ -395,7 +395,7 @@ object SicBoScene {
         }
 
         return CPScene(
-            "sicbo",
+            SceneId.SICBO.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, logicSprite, inputSprite)

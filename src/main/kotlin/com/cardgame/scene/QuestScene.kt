@@ -53,11 +53,11 @@ object QuestScene {
                 when (evt.get().key()) {
                     KEY_Y -> {
                         GameState.pendingQuestOffer?.let { GameState.acceptQuest(it) } ?: GameState.denyPendingQuest()
-                        ctx.switchScene("game", false)
+                        ctx.switchScene(SceneId.GAME, false)
                     }
                     KEY_N, KEY_B, KEY_ESC -> {
                         GameState.denyPendingQuest()
-                        ctx.switchScene("game", false)
+                        ctx.switchScene(SceneId.GAME, false)
                     }
                     else -> {}
                 }
@@ -65,7 +65,7 @@ object QuestScene {
         }
 
         return CPScene(
-            "quest",
+            SceneId.QUEST.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

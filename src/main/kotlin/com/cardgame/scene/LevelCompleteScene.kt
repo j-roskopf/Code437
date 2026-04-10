@@ -55,16 +55,16 @@ object LevelCompleteScene {
                     KEY_N -> {
                         RunStats.bankLevelClear(GameState.score)
                         if (GameState.currentLevel < LevelConfig.COUNT) {
-                            GameState.advanceToNextLevel()
-                            kotlin.runCatching { ctx.deleteScene("game") }
-                            ctx.addScene(GameScene.create(), false, false, false)
-                            ctx.switchScene("game", false)
+                            GameState.shopDismissAction = ShopDismissAction.AdvanceLevelRecreateGame
+                            kotlin.runCatching { ctx.deleteScene(SceneId.SHOP) }
+                            ctx.addScene(ShopScene.create(), false, false, false)
+                            ctx.switchScene(SceneId.SHOP, false)
                         } else {
                             GameState.runEndKind = RunEndKind.VICTORY
-                            ctx.switchScene("runsummary", false)
+                            ctx.switchScene(SceneId.RUN_SUMMARY, false)
                         }
                     }
-                    KEY_M -> ctx.switchScene("menu", false)
+                    KEY_M -> ctx.switchScene(SceneId.MENU, false)
                     KEY_Q -> ctx.exitGame()
                     else -> {}
                 }
@@ -72,7 +72,7 @@ object LevelCompleteScene {
         }
 
         return CPScene(
-            "levelcomplete",
+            SceneId.LEVEL_COMPLETE.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

@@ -26,7 +26,7 @@ object MiniGamesHubScene {
                 val highSlots = "Slots high (peak gold): ${MiniGameScores.slotsPeakGold}"
                 val highSic = "Sic Bo high (peak gold): ${MiniGameScores.sicboPeakGold}"
                 val backHint =
-                    if (GameState.minigamesReturnScene == "game") "B / ESC  Back to game"
+                    if (GameState.minigamesReturnScene == SceneId.GAME) "B / ESC  Back to game"
                     else "B / ESC  Back to menu"
                 val options = listOf(
                     "[1]  Slot Machine" to CPColor.C_STEEL_BLUE1(),
@@ -65,19 +65,19 @@ object MiniGamesHubScene {
                 when (key) {
                     KEY_1 -> {
                         kotlin.runCatching {
-                            ctx.deleteScene("slots")
-                            ctx.deleteScene("sicbo")
+                            ctx.deleteScene(SceneId.SLOTS)
+                            ctx.deleteScene(SceneId.SICBO)
                         }
                         ctx.addScene(SlotMachineScene.create(), false, false, false)
-                        ctx.switchScene("slots", false)
+                        ctx.switchScene(SceneId.SLOTS, false)
                     }
                     KEY_2 -> {
                         kotlin.runCatching {
-                            ctx.deleteScene("sicbo")
-                            ctx.deleteScene("slots")
+                            ctx.deleteScene(SceneId.SICBO)
+                            ctx.deleteScene(SceneId.SLOTS)
                         }
                         ctx.addScene(SicBoScene.create(), false, false, false)
-                        ctx.switchScene("sicbo", false)
+                        ctx.switchScene(SceneId.SICBO, false)
                     }
                     KEY_B, KEY_ESC -> ctx.switchScene(GameState.minigamesReturnScene, false)
                     else -> {}
@@ -86,7 +86,7 @@ object MiniGamesHubScene {
         }
 
         return CPScene(
-            "minigames",
+            SceneId.MINIGAMES.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

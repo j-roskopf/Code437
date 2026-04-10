@@ -91,7 +91,7 @@ object SecretRoomScene {
 
                 if (resolved) {
                     if (key == KEY_B || key == KEY_ESC) {
-                        ctx.switchScene("game", false)
+                        ctx.switchScene(SceneId.GAME, false)
                     }
                     return
                 }
@@ -151,7 +151,7 @@ object SecretRoomScene {
         }
 
         return CPScene(
-            "secretroom",
+            SceneId.SECRET_ROOM.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

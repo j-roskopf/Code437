@@ -48,11 +48,7 @@ object RestScene {
                     add("Warm yourself by the fire." to CPColor.C_GREY70())
                     add("" to CPColor.C_GREY70())
                     if (!rested) {
-                        if (previewHeal > 0) {
-                            add("Resting will restore about $previewHeal HP." to CPColor.C_GREEN1())
-                        } else {
-                            add("You are already at full vigor." to CPColor.C_GREY50())
-                        }
+                        add("Resting restores +$previewHeal HP." to CPColor.C_GREEN1())
                         add("" to CPColor.C_GREY50())
                         add("R  Rest by the fire" to CPColor.C_STEEL_BLUE1())
                         add("B / ESC  Leave" to CPColor.C_GREY50())
@@ -98,17 +94,17 @@ object RestScene {
                             if (lastHealApplied > 0) GameState.playerHealth += lastHealApplied
                             rested = true
                         } else {
-                            ctx.switchScene("game", false)
+                            ctx.switchScene(SceneId.GAME, false)
                         }
                     }
-                    KEY_B, KEY_ESC -> ctx.switchScene("game", false)
+                    KEY_B, KEY_ESC -> ctx.switchScene(SceneId.GAME, false)
                     else -> {}
                 }
             }
         }
 
         return CPScene(
-            "rest",
+            SceneId.REST.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(contentSprite, inputSprite)

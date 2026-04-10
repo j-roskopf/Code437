@@ -171,11 +171,10 @@ object QuestSystem {
         return basePool[Random.nextInt(basePool.size)]
     }
 
-    fun restHealAmount(currentHealth: Int, maxHealth: Int = 30): Int {
+    fun restHealAmount(@Suppress("UNUSED_PARAMETER") currentHealth: Int, maxHealth: Int = 30): Int {
         val pct = 0.35f
         val base = (maxHealth * pct).roundToInt().coerceAtLeast(2)
-        val missing = (maxHealth - currentHealth).coerceAtLeast(0)
-        return base.coerceAtMost(missing)
+        return base
     }
 }
 

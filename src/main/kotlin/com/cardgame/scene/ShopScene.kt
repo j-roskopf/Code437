@@ -3,28 +3,18 @@ package com.cardgame.scene
 import com.cardgame.*
 import com.cardgame.art.AsciiArt
 import com.cardgame.game.GameState
-import com.cardgame.game.KeyTier
-import kotlin.random.Random
 import org.cosplay.*
 import scala.Option
-
-private enum class ShopPurchaseKind {
-    HEAL_HP,
-    ADD_ATK,
-    ADD_KEY,
-    SHIELD_HP,
-}
 
 private data class ShopOffer(
     val slot: Int,
     val label: String,
     val price: Int,
-    val kind: ShopPurchaseKind,
-    val value: Int,
+    val cardType: GameState.PlayerDeckCard,
 )
 
 /**
- * Spend [GameState.money] on random power-ups. Offers refresh each visit.
+ * Spend [GameState.money] on random cards. Offers refresh each visit.
  * Open from the main menu or level-complete screen.
  */
 object ShopScene {
@@ -38,38 +28,20 @@ object ShopScene {
     private val KEY_ESC = kbKey("KEY_ESC")
 
     private fun generateOffers(): List<ShopOffer> {
-        val kinds = ShopPurchaseKind.entries
+        val cards = GameState.purchaseDeckCardOptions()
         return List(3) { idx ->
-            when (kinds.random()) {
-                ShopPurchaseKind.HEAL_HP -> {
-                    val v = Random.nextInt(5, 11)
-                    ShopOffer(idx + 1, "+$v HP", Random.nextInt(14, 28), ShopPurchaseKind.HEAL_HP, v)
-                }
-                ShopPurchaseKind.ADD_ATK -> {
-                    val v = Random.nextInt(1, 3)
-                    ShopOffer(idx + 1, "+$v ATK", Random.nextInt(24, 44), ShopPurchaseKind.ADD_ATK, v)
-                }
-                ShopPurchaseKind.ADD_KEY -> ShopOffer(
-                    idx + 1,
-                    "+1 Key",
-                    Random.nextInt(16, 30),
-                    ShopPurchaseKind.ADD_KEY,
-                    1
-                )
-                ShopPurchaseKind.SHIELD_HP -> {
-                    val v = Random.nextInt(4, 10)
-                    ShopOffer(idx + 1, "+$v HP (tough)", Random.nextInt(12, 22), ShopPurchaseKind.SHIELD_HP, v)
-                }
+            val card = cards[idx]
+            val price = when (card) {
+                GameState.PlayerDeckCard.POTION -> 16
+                GameState.PlayerDeckCard.SHIELD -> 20
+                GameState.PlayerDeckCard.SWORD -> 22
+                GameState.PlayerDeckCard.BOW_ARROW -> 22
+                GameState.PlayerDeckCard.CAMPFIRE -> 24
+                GameState.PlayerDeckCard.ARMOR -> 28
+                GameState.PlayerDeckCard.KEY -> 18
+                GameState.PlayerDeckCard.CHEST -> 0
             }
-        }
-    }
-
-    private fun applyPurchase(offer: ShopOffer) {
-        when (offer.kind) {
-            ShopPurchaseKind.HEAL_HP, ShopPurchaseKind.SHIELD_HP ->
-                GameState.playerHealth = (GameState.playerHealth + offer.value).coerceAtMost(99)
-            ShopPurchaseKind.ADD_ATK -> GameState.playerAttack += offer.value
-            ShopPurchaseKind.ADD_KEY -> repeat(offer.value) { GameState.addKey(KeyTier.entries.random()) }
+            ShopOffer(idx + 1, card.label, price, card)
         }
     }
 
@@ -109,8 +81,8 @@ object ShopScene {
                     }
                 }
                 val textBlocks = listOf(
-                    "MERCHANT" to CPColor.C_GOLD1(),
-                    "GOLD ${GameState.money}   HP ${GameState.playerHealth}   ATK ${GameState.playerAttack}   KEYS ${GameState.keysBronze}B ${GameState.keysSilver}S ${GameState.keysGold}G" to CPColor.C_CYAN1(),
+                    "DECK MERCHANT" to CPColor.C_GOLD1(),
+                    "GOLD ${GameState.money}   P-DECK ${GameState.playerDeckSnapshot().draw + GameState.playerDeckSnapshot().discard}" to CPColor.C_CYAN1(),
                 ) + offerLines.map { line ->
                     val col = when {
                         "SOLD" in line -> CPColor.C_GREY50()
@@ -153,7 +125,16 @@ object ShopScene {
                     KEY_2 -> 1
                     KEY_3 -> 2
                     KEY_B, KEY_ESC -> {
-                        ctx.switchScene(GameState.shopReturnScene, false)
+                        when (val dismiss = GameState.shopDismissAction) {
+                            ShopDismissAction.AdvanceLevelRecreateGame -> {
+                                GameState.advanceToNextLevel()
+                                kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+                                ctx.addScene(GameScene.create(), false, false, false)
+                                ctx.switchScene(SceneId.GAME, false)
+                            }
+                            is ShopDismissAction.SwitchTo -> ctx.switchScene(dismiss.scene, false)
+                        }
+                        GameState.shopDismissAction = ShopDismissAction.SwitchTo(SceneId.MENU)
                         return
                     }
                     else -> return
@@ -161,13 +142,13 @@ object ShopScene {
                 if (idx !in offers.indices || sold[idx]) return
                 val o = offers[idx]
                 if (!GameState.trySpendMoney(o.price)) return
-                applyPurchase(o)
+                GameState.addCardToPlayerDeck(o.cardType)
                 sold[idx] = true
             }
         }
 
         return CPScene(
-            "shop",
+            SceneId.SHOP.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

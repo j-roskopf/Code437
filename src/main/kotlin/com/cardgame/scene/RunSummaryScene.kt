@@ -229,8 +229,8 @@ object RunSummaryScene {
                 when (evt.get().key()) {
                     KEY_N -> {
                         when (GameState.runEndKind) {
-                            RunEndKind.DEATH -> ctx.switchScene("gameover", false)
-                            RunEndKind.VICTORY -> ctx.switchScene("menu", false)
+                            RunEndKind.DEATH -> ctx.switchScene(SceneId.GAME_OVER, false)
+                            RunEndKind.VICTORY -> ctx.switchScene(SceneId.MENU, false)
                         }
                     }
                     KEY_Q -> ctx.exitGame()
@@ -240,7 +240,7 @@ object RunSummaryScene {
         }
 
         return CPScene(
-            "runsummary",
+            SceneId.RUN_SUMMARY.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(fxSprite, displaySprite, inputSprite)

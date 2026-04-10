@@ -48,18 +48,18 @@ object GameOverScene {
                     KEY_Q -> ctx.exitGame()
                     KEY_R -> {
                         GameState.resetForLevel(GameState.currentLevel)
-                        kotlin.runCatching { ctx.deleteScene("game") }
+                        kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
                         ctx.addScene(GameScene.create(), false, false, false)
-                        ctx.switchScene("game", false)
+                        ctx.switchScene(SceneId.GAME, false)
                     }
-                    KEY_M -> ctx.switchScene("menu", false)
+                    KEY_M -> ctx.switchScene(SceneId.MENU, false)
                     else -> {}
                 }
             }
         }
 
         return CPScene(
-            "gameover",
+            SceneId.GAME_OVER.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

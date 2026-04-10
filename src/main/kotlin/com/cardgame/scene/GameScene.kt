@@ -283,6 +283,7 @@ object GameScene {
     private const val DECK_EXIT_END_T = 0.64f
 
     private enum class DeckSpawnEdge { BOTTOM, RIGHT }
+    private enum class DeckSource { ENEMY, PLAYER }
 
     private class SlideAnim(
         val fromX: Int,
@@ -292,6 +293,7 @@ object GameScene {
         var elapsed: Int = 0,
         val durationFrames: Int = SLIDE_DURATION_FRAMES,
         val deckSpawnEdge: DeckSpawnEdge? = null,
+        val deckSource: DeckSource = DeckSource.PLAYER,
     ) {
         private val lastFrame = (durationFrames - 1).coerceAtLeast(0)
 
@@ -309,7 +311,7 @@ object GameScene {
         slideAnimations[entity] = SlideAnim(fromX, fromY, toX, toY)
     }
 
-    private fun registerDeckSpawnSlide(entity: Any, toX: Int, toY: Int, edge: DeckSpawnEdge) {
+    private fun registerDeckSpawnSlide(entity: Any, toX: Int, toY: Int, edge: DeckSpawnEdge, source: DeckSource) {
         slideAnimations[entity] = SlideAnim(
             fromX = 0,
             fromY = 0,
@@ -317,6 +319,7 @@ object GameScene {
             toY = toY,
             durationFrames = DECK_SLIDE_DURATION_FRAMES,
             deckSpawnEdge = edge,
+            deckSource = source,
         )
     }
 
@@ -329,7 +332,10 @@ object GameScene {
     private fun deckSpawnScreenPos(anim: SlideAnim, rawT: Float): Pair<Int, Int> {
         val edge = anim.deckSpawnEdge ?: return anim.toX to anim.toY
         val deckX = GridConfig.deckScreenX
-        val deckY = GridConfig.deckScreenY
+        val deckY = when (anim.deckSource) {
+            DeckSource.ENEMY -> GridConfig.enemyDeckScreenY
+            DeckSource.PLAYER -> GridConfig.playerDeckScreenY
+        }
         val w = GridConfig.CELL_WIDTH
         val h = GridConfig.CELL_HEIGHT
         val t = rawT.coerceIn(0f, 1f)
@@ -423,6 +429,18 @@ object GameScene {
         }
     }
 
+    private fun markItemResolved(item: GridItem) {
+        if (item.collected) return
+        item.collected = true
+        GameState.onSpawnedItemResolved(item)
+    }
+
+    private fun markEnemyResolved(enemy: EnemyCard) {
+        if (enemy.defeated) return
+        enemy.defeated = true
+        GameState.onSpawnedEnemyResolved(enemy)
+    }
+
     /**
      * Removes items/enemies still logically at this cell (e.g. opened chest sharing the player’s
      * tile). Slide spawn assumes the slot is empty; without this, a new card is appended while the
@@ -508,14 +526,20 @@ object GameScene {
             removeEntitiesAt(col, row)
             val toX = GridConfig.cellScreenX(col)
             val toY = GridConfig.cellScreenY(row)
-            if (Random.nextBoolean()) {
-                val newItem = LevelGenerator.randomItemAt(col, row, items, enemies)
-                items = items + newItem
-                registerDeckSpawnSlide(newItem, toX, toY, DeckSpawnEdge.BOTTOM)
+            val spawn = GameState.drawSpawnForCell(col, row, items, enemies)
+            if (spawn.first != null) {
+                val newItem = spawn.first
+                items = items + newItem!!
+                val src = if (newItem.type == ItemType.SPIKES || newItem.type == ItemType.BOMB || newItem.type == ItemType.WALL) {
+                    DeckSource.ENEMY
+                } else {
+                    DeckSource.PLAYER
+                }
+                registerDeckSpawnSlide(newItem, toX, toY, DeckSpawnEdge.BOTTOM, src)
             } else {
-                val newEnemy = LevelGenerator.randomEnemyAt(col, row, enemies, items)
-                enemies = enemies + newEnemy
-                registerDeckSpawnSlide(newEnemy, toX, toY, DeckSpawnEdge.BOTTOM)
+                val newEnemy = spawn.second
+                enemies = enemies + newEnemy!!
+                registerDeckSpawnSlide(newEnemy, toX, toY, DeckSpawnEdge.BOTTOM, DeckSource.ENEMY)
             }
         }
     }
@@ -572,14 +596,20 @@ object GameScene {
             removeEntitiesAt(col, row)
             val toX = GridConfig.cellScreenX(col)
             val toY = GridConfig.cellScreenY(row)
-            if (Random.nextBoolean()) {
-                val newItem = LevelGenerator.randomItemAt(col, row, items, enemies)
-                items = items + newItem
-                registerDeckSpawnSlide(newItem, toX, toY, DeckSpawnEdge.RIGHT)
+            val spawn = GameState.drawSpawnForCell(col, row, items, enemies)
+            if (spawn.first != null) {
+                val newItem = spawn.first
+                items = items + newItem!!
+                val src = if (newItem.type == ItemType.SPIKES || newItem.type == ItemType.BOMB || newItem.type == ItemType.WALL) {
+                    DeckSource.ENEMY
+                } else {
+                    DeckSource.PLAYER
+                }
+                registerDeckSpawnSlide(newItem, toX, toY, DeckSpawnEdge.RIGHT, src)
             } else {
-                val newEnemy = LevelGenerator.randomEnemyAt(col, row, enemies, items)
-                enemies = enemies + newEnemy
-                registerDeckSpawnSlide(newEnemy, toX, toY, DeckSpawnEdge.RIGHT)
+                val newEnemy = spawn.second
+                enemies = enemies + newEnemy!!
+                registerDeckSpawnSlide(newEnemy, toX, toY, DeckSpawnEdge.RIGHT, DeckSource.ENEMY)
             }
         }
     }
@@ -599,7 +629,7 @@ object GameScene {
         val hudSprite = createHudSprite(noShaders, tags)
 
         return CPScene(
-            "game",
+            SceneId.GAME.id,
             Option.empty(),  // adaptive to terminal size
             bgPx,
             scalaSeqOf(gridSprite, playerSprite, hudSprite, effectSprite)
@@ -762,7 +792,8 @@ object GameScene {
     }
 
     private fun drawDeckFaceDown(canv: CPCanvas, gc: GridConfig) {
-        drawDeckCardBackAt(canv, gc.deckScreenX, gc.deckScreenY, gc.CELL_WIDTH, gc.CELL_HEIGHT, 0)
+        drawDeckCardBackAt(canv, gc.deckScreenX, gc.enemyDeckScreenY, gc.CELL_WIDTH, gc.CELL_HEIGHT, 0)
+        drawDeckCardBackAt(canv, gc.deckScreenX, gc.playerDeckScreenY, gc.CELL_WIDTH, gc.CELL_HEIGHT, 0)
     }
 
     private fun maxInteriorClipHalf(w: Int): Int = (w - 2) / 2
@@ -877,7 +908,7 @@ object GameScene {
 
     private fun explodeBomb(bomb: GridItem, ctx: CPSceneObjectContext) {
         explosionFx.spawnCrossExplosion(bomb.gridX, bomb.gridY)
-        bomb.collected = true
+        markItemResolved(bomb)
         val bx = bomb.gridX
         val by = bomb.gridY
         val dirs = listOf(0 to -1, 0 to 1, -1 to 0, 1 to 0)
@@ -886,25 +917,40 @@ object GameScene {
             val ny = by + dy
             if (nx !in 0 until GridConfig.COLS || ny !in 0 until GridConfig.ROWS) continue
             if (GameState.playerGridX == nx && GameState.playerGridY == ny) {
-                GameState.gameOver = true
-                GameState.playerHealth = 0
-                GameState.runEndKind = RunEndKind.DEATH
-                ctx.switchScene("runsummary", false)
-                return
+                if (!GameState.debugMode) {
+                    GameState.gameOver = true
+                    GameState.playerHealth = 0
+                    GameState.runEndKind = RunEndKind.DEATH
+                    ctx.switchScene(SceneId.RUN_SUMMARY, false)
+                    return
+                }
             }
             for (enemy in enemies) {
                 if (!enemy.defeated && enemy.gridX == nx && enemy.gridY == ny) {
                     GameState.registerEnemyDefeat(enemy.kind, enemy.isElite)
                     RunStats.recordEnemyKill(enemy.kind, enemy.isElite)
-                    enemy.defeated = true
+                    markEnemyResolved(enemy)
+                    if (enemy.isElite) dropEliteKeyAt(nx, ny)
                 }
             }
             for (it in items) {
                 if (!it.collected && it.gridX == nx && it.gridY == ny) {
-                    it.collected = true
+                    markItemResolved(it)
                 }
             }
         }
+    }
+
+    /** Elite defeats always grant a tiered key by level on the defeated elite cell. */
+    private fun dropEliteKeyAt(gridX: Int, gridY: Int) {
+        val tier = LevelGenerator.keyTierForLevel(GameState.currentLevel)
+        items = items + LevelGenerator.spawnKeyAtTier(
+            tier = tier,
+            gridX = gridX,
+            gridY = gridY,
+            existingItems = items,
+            existingEnemies = enemies,
+        )
     }
 
     private fun drawGridItemCard(
@@ -945,7 +991,7 @@ object GameScene {
                 canv.drawPixel(px(ch, color), pxX, sy + 1, 1)
             }
         }
-        if (GameState.debugRevealSecrets && item.secretRoom) {
+        if (GameState.debugMode && item.secretRoom) {
             drawCardBorder(canv, sx, sy, cw, ch, 2, CPColor.C_GOLD1())
             val qx = sx + cw - 3
             if (allowInteriorClipDraw(sx, cw, qx, interiorClipHalfWidth)) {
@@ -1050,7 +1096,7 @@ object GameScene {
                 canv.drawPixel(px(ch, nameColor), pxX, sy + 1, 1)
             }
         }
-        if (GameState.debugRevealSecrets && enemy.secretRoom) {
+        if (GameState.debugMode && enemy.secretRoom) {
             drawCardBorder(canv, sx, sy, cw, ch, 2, CPColor.C_GOLD1())
             val qx = sx + cw - 3
             if (allowInteriorClipDraw(sx, cw, qx, interiorClipHalfWidth)) {
@@ -1158,12 +1204,12 @@ object GameScene {
 
                 when (key) {
                     KEY_Z -> {
-                        GameState.debugRevealSecrets = !GameState.debugRevealSecrets
+                        GameState.debugMode = !GameState.debugMode
                         return
                     }
                     KEY_I -> {
-                        GameState.inventoryReturnScene = "game"
-                        ctx.switchScene("inventory", false)
+                        GameState.inventoryReturnScene = SceneId.GAME
+                        ctx.switchScene(SceneId.INVENTORY, false)
                         return
                     }
                     KEY_W, KEY_UP -> dy = -1
@@ -1210,7 +1256,7 @@ object GameScene {
                         GameState.applyWallChipPenalty()
                         itemFlash.flash(newX, newY)
                         if (chip.destroyed) {
-                            wallBlocking.collected = true
+                            markItemResolved(wallBlocking)
                             confetti.spawn(newX, newY)
                         }
                         tickBombs(ctx)
@@ -1227,11 +1273,11 @@ object GameScene {
                     it.type == ItemType.SPIKES && !it.collected &&
                         it.gridX == newX && it.gridY == newY
                 }
-                if (spikeHere != null) {
+                if (spikeHere != null && !GameState.debugMode) {
                     GameState.gameOver = true
                     GameState.playerHealth = 0
                     GameState.runEndKind = RunEndKind.DEATH
-                    ctx.switchScene("runsummary", false)
+                    ctx.switchScene(SceneId.RUN_SUMMARY, false)
                     return
                 }
 
@@ -1240,15 +1286,15 @@ object GameScene {
                 }
                 if (secretHere != null && GameState.hasAnyKey()) {
                     GameState.consumeAnyKey()
-                    secretHere.collected = true
+                    markItemResolved(secretHere)
                     itemFlash.flash(newX, newY)
                     confetti.spawn(newX, newY)
                     RunStats.recordSecretRoom()
                     val pmSecret = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
                     if (applyPostMoveSlidingAndBombs(ctx, pmSecret, prevX, prevY)) return
-                    kotlin.runCatching { ctx.deleteScene("secretroom") }
+                    kotlin.runCatching { ctx.deleteScene(SceneId.SECRET_ROOM) }
                     ctx.addScene(SecretRoomScene.create(), false, false, false)
-                    ctx.switchScene("secretroom", false)
+                    ctx.switchScene(SceneId.SECRET_ROOM, false)
                     return
                 }
 
@@ -1258,7 +1304,7 @@ object GameScene {
                         if (item.type == ItemType.CHEST && item.chestOpened && !item.chestGoldClaimed) {
                             GameState.addMoney(item.value)
                             item.chestGoldClaimed = true
-                            item.collected = true
+                            markItemResolved(item)
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
                             continue
@@ -1266,7 +1312,7 @@ object GameScene {
                         if (item.type == ItemType.CHEST || item.type == ItemType.SHOP || item.type == ItemType.GAMBLING) continue
                         if (item.type == ItemType.SPIKES || item.type == ItemType.BOMB || item.type == ItemType.WALL) continue
                         if (item.type == ItemType.QUEST) {
-                            item.collected = true
+                            markItemResolved(item)
                             GameState.pendingQuestOffer = QuestSystem.randomOffer(
                                 excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
                                 completedQuestIds = GameState.completedQuestIds(),
@@ -1276,21 +1322,21 @@ object GameScene {
                             confetti.spawn(newX, newY)
                             val pmQuest = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
                             if (applyPostMoveSlidingAndBombs(ctx, pmQuest, prevX, prevY)) return
-                            ctx.switchScene("quest", false)
+                            ctx.switchScene(SceneId.QUEST, false)
                             return
                         }
                         if (item.type == ItemType.REST) {
-                            item.collected = true
+                            markItemResolved(item)
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
                             val pmRest = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
                             if (applyPostMoveSlidingAndBombs(ctx, pmRest, prevX, prevY)) return
-                            kotlin.runCatching { ctx.deleteScene("rest") }
+                            kotlin.runCatching { ctx.deleteScene(SceneId.REST) }
                             ctx.addScene(RestScene.create(), false, false, false)
-                            ctx.switchScene("rest", false)
+                            ctx.switchScene(SceneId.REST, false)
                             return
                         }
-                        item.collected = true
+                        markItemResolved(item)
                         val effect = resolveItemEffect(item.type, item.value, item.tier)
                         GameState.playerHealth += effect.healthDelta
                         GameState.playerAttack += effect.attackDelta
@@ -1310,15 +1356,15 @@ object GameScene {
                     if (!enemy.defeated && enemy.gridX == newX && enemy.gridY == newY) {
                         if (enemy.secretRoom) {
                             if (GameState.hasAnyKey()) GameState.consumeAnyKey()
-                            enemy.defeated = true
+                            markEnemyResolved(enemy)
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
                             RunStats.recordSecretRoom()
                             val pmSecE = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
                             if (applyPostMoveSlidingAndBombs(ctx, pmSecE, prevX, prevY)) return
-                            kotlin.runCatching { ctx.deleteScene("secretroom") }
+                            kotlin.runCatching { ctx.deleteScene(SceneId.SECRET_ROOM) }
                             ctx.addScene(SecretRoomScene.create(), false, false, false)
-                            ctx.switchScene("secretroom", false)
+                            ctx.switchScene(SceneId.SECRET_ROOM, false)
                             return
                         }
                         val exchange = resolveCombatExchange(
@@ -1328,30 +1374,34 @@ object GameScene {
                             playerAttack = GameState.effectivePlayerAttack(),
                             damageAfterEnemyAttack = { atk -> GameState.damageAfterEnemyAttack(atk) }
                         )
-                        GameState.playerHealth -= exchange.playerDamageTaken
+                        if (!GameState.debugMode) {
+                            GameState.playerHealth -= exchange.playerDamageTaken
+                        }
                         enemy.health -= exchange.enemyDamageTaken
                         combatFlash.flash(newX, newY)
 
                         if (exchange.enemyDefeated) {
-                            enemy.defeated = true
+                            markEnemyResolved(enemy)
                             GameState.registerEnemyDefeat(enemy.kind, enemy.isElite)
                             RunStats.recordEnemyKill(enemy.kind, enemy.isElite)
                             GameState.score += if (enemy.isElite) 40 else 25
                             if (enemy.isElite) {
-                                if (Random.nextBoolean()) {
-                                    GameState.addMoney(Random.nextInt(15, 32))
-                                } else {
-                                    GameState.addKey(KeyTier.entries.random())
+                                // Keep the player in their original tile so the elite cell holds the dropped key card.
+                                GameState.playerGridX = (newX - dx).coerceIn(0, GridConfig.COLS - 1)
+                                GameState.playerGridY = (newY - dy).coerceIn(0, GridConfig.ROWS - 1)
+                                dropEliteKeyAt(newX, newY)
+                                if (GameState.score >= LevelConfig.targetScore(GameState.currentLevel)) {
+                                    GameState.deferLevelCompleteForEliteKey = true
                                 }
                             }
                             confetti.spawn(newX, newY)
                         }
 
-                        if (exchange.playerDefeated) {
+                        if (exchange.playerDefeated && !GameState.debugMode) {
                             GameState.playerHealth = 0
                             GameState.gameOver = true
                             GameState.runEndKind = RunEndKind.DEATH
-                            ctx.switchScene("runsummary", false)
+                            ctx.switchScene(SceneId.RUN_SUMMARY, false)
                             return
                         }
 
@@ -1377,23 +1427,24 @@ object GameScene {
                 }
                 val reachedLevelTarget =
                     postMove.shouldCheckLevelComplete &&
-                        GameState.score >= LevelConfig.targetScore(GameState.currentLevel)
+                        GameState.score >= LevelConfig.targetScore(GameState.currentLevel) &&
+                        !GameState.deferLevelCompleteForEliteKey
                 when (resolvePostMoveSceneRoute(postMove.moved, onGamblingTile, onShopTile, reachedLevelTarget)) {
                     PostMoveSceneRoute.MINIGAMES -> {
-                        GameState.minigamesReturnScene = "game"
-                        ctx.switchScene("minigames", false)
+                        GameState.minigamesReturnScene = SceneId.GAME
+                        ctx.switchScene(SceneId.MINIGAMES, false)
                         return
                     }
                     PostMoveSceneRoute.SHOP -> {
-                        GameState.shopReturnScene = "game"
-                        kotlin.runCatching { ctx.deleteScene("shop") }
+                        GameState.shopDismissAction = ShopDismissAction.SwitchTo(SceneId.GAME)
+                        kotlin.runCatching { ctx.deleteScene(SceneId.SHOP) }
                         ctx.addScene(ShopScene.create(), false, false, false)
-                        ctx.switchScene("shop", false)
+                        ctx.switchScene(SceneId.SHOP, false)
                         return
                     }
                     PostMoveSceneRoute.LEVEL_COMPLETE -> {
                         Progress.onLevelCleared(GameState.currentLevel)
-                        ctx.switchScene("levelcomplete", false)
+                        ctx.switchScene(SceneId.LEVEL_COMPLETE, false)
                         return
                     }
                     PostMoveSceneRoute.NONE -> {}
@@ -1458,119 +1509,64 @@ object GameScene {
         return object : CPCanvasSprite("hud", shaders, tags) {
             override fun render(ctx: CPSceneObjectContext) {
                 val canv = ctx.canvas
-                val h = canv.height()
                 syncClusterLayout(canv)
                 val cx = GridConfig.clusterOriginX
                 val cw = GridConfig.HUD_COLUMN_WIDTH
                 val textMax = cw.coerceAtLeast(8)
-
-                val questLinesRaw = GameState.questHudLines()
-                val layout = computeHudLayout(h, questLinesRaw.size)
-                val questLines = questLinesRaw.map { hudLineFit(it, textMax) }
                 val hudZ = 15 // above grid/player (≤4) and confetti (10)
 
-                val goal = LevelConfig.targetScore(GameState.currentLevel)
                 val ly = GridConfig.hudTopY
+                val oneThird = (GridConfig.GRID_TOTAL_HEIGHT / 3).coerceAtLeast(4)
+                val topStart = ly
+                val midStart = ly + oneThird
+                val botStart = ly + oneThird * 2
 
-                val line1 = hudLineFit("CARD CRAWLER", textMax)
-                val loreLine = hudLineFit(LevelConfig.hudLore(GameState.currentLevel), textMax)
-                val line2 = hudLineFit(
-                    hudStatsLine(
-                        level = GameState.currentLevel,
-                        hp = GameState.playerHealth,
-                        atkDisplay = GameState.playerAttackDisplay(),
-                        shieldDisplay = GameState.playerShieldDisplay(),
-                    ),
-                    textMax,
-                )
-                val line3 = hudLineFit("SCORE ${GameState.score} / $goal", textMax)
-                val line4 = hudLineFit("GOLD ${GameState.money}", textMax)
-                val dbgSecret = run {
-                    val secretItem = items.firstOrNull { !it.collected && it.secretRoom }
-                    val secretEnemy = enemies.firstOrNull { !it.defeated && it.secretRoom }
-                    when {
-                        secretItem != null -> "DBG:I ${secretItem.gridX},${secretItem.gridY}"
-                        secretEnemy != null -> "DBG:E ${secretEnemy.gridX},${secretEnemy.gridY}"
-                        else -> "DBG:none"
-                    }
-                }
-                val invHint = hudLineFit("I — open inventory", textMax)
-                val lineControls = hudLineFit(
-                    if (GameState.debugRevealSecrets) "WASD Z-dbg Q/Esc  $dbgSecret"
-                    else "WASD move  Z debug  Q/Esc quit",
-                    textMax,
+                val enemyDeck = GameState.enemyDeckSnapshot()
+                val playerDeck = GameState.playerDeckSnapshot()
+                val goal = LevelConfig.targetScore(GameState.currentLevel)
+                val questLine = GameState.questHudLines().firstOrNull() ?: "Quest: none"
+                val middleLines = listOf(
+                    hudLineFit("CARD CRAWLER", textMax),
+                    hudLineFit(LevelConfig.hudLore(GameState.currentLevel), textMax),
+                    hudLineFit("LV ${GameState.currentLevel} HP:${GameState.playerHealth}", textMax),
+                    hudLineFit("ATK ${GameState.playerAttackDisplay()}", textMax),
+                    hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax),
+                    hudLineFit("SCORE ${GameState.score}/$goal", textMax),
+                    hudLineFit("GOLD ${GameState.money}", textMax),
+                    hudLineFit("KEYS ${GameState.keysBronze}B ${GameState.keysSilver}S ${GameState.keysGold}G", textMax),
+                    hudLineFit(questLine, textMax),
                 )
 
                 val bg = Option.apply(BG_COLOR)
-                val blue = CPColor.C_STEEL_BLUE1()
-                val goldHud = CPColor.C_GOLD1()
-                canv.drawString(hudXCenteredInCluster(cx, cw, line1.length), ly, hudZ, line1, CPColor.C_GOLD1(), bg)
-                canv.drawString(hudXCenteredInCluster(cx, cw, loreLine.length), ly + 1, hudZ, loreLine, CPColor.C_GREY70(), bg)
-                canv.drawString(hudXCenteredInCluster(cx, cw, line2.length), ly + 2, hudZ, line2, blue, bg)
-                canv.drawString(hudXCenteredInCluster(cx, cw, line3.length), ly + 3, hudZ, line3, blue, bg)
-                canv.drawString(hudXCenteredInCluster(cx, cw, line4.length), ly + 4, hudZ, line4, goldHud, bg)
-                val questColor = when {
-                    GameState.questFlashText() != null -> CPColor.C_GOLD1()
-                    else -> CPColor(165, 120, 255, "quest-hud")
-                }
-                val qy = ly + layout.questBlockStartLine
-                for ((i, qLine) in questLines.withIndex()) {
-                    canv.drawString(
-                        hudXCenteredInCluster(cx, cw, qLine.length),
-                        qy + i,
-                        hudZ,
-                        qLine,
-                        questColor,
-                        bg,
-                    )
-                }
-                canv.drawString(
-                    hudXCenteredInCluster(cx, cw, invHint.length),
-                    ly + layout.inventoryLineIndex,
-                    hudZ,
-                    invHint,
-                    CPColor.C_STEEL_BLUE1(),
-                    bg,
+                val topLines = listOf(
+                    hudLineFit("ENEMY DECK", textMax),
+                    hudLineFit("D:${enemyDeck.draw} R:${enemyDeck.discard}", textMax),
+                    hudLineFit("TOP ${enemyDeck.top}", textMax),
                 )
+                for ((i, ln) in topLines.withIndex()) {
+                    val col = if (i == 0) CPColor.C_INDIAN_RED1() else CPColor.C_GREY70()
+                    canv.drawString(hudXCenteredInCluster(cx, cw, ln.length), topStart + i, hudZ, ln, col, bg)
+                }
+                val middleVisible = middleLines.take(oneThird)
+                val middleStartY = midStart + ((oneThird - middleVisible.size).coerceAtLeast(0) / 2)
+                for ((i, ln) in middleVisible.withIndex()) {
+                    val col = when (i) {
+                        0 -> CPColor.C_GOLD1()
+                        1 -> CPColor.C_GREY70()
+                        5, 6 -> CPColor.C_STEEL_BLUE1()
+                        else -> CPColor.C_GREY70()
+                    }
+                    canv.drawString(hudXCenteredInCluster(cx, cw, ln.length), middleStartY + i, hudZ, ln, col, bg)
+                }
 
-                val keySeg1 = "KEYS "
-                val keySeg2 = "${GameState.keysBronze}B "
-                val keySeg3 = "${GameState.keysSilver}S "
-                val keySeg4 = "${GameState.keysGold}G"
-                val keyLine = keySeg1 + keySeg2 + keySeg3 + keySeg4
-                val keyStart = hudXCenteredInCluster(cx, cw, keyLine.length)
-                var kx = keyStart
-                val keysRow = ly + layout.keysLineIndex
-                canv.drawString(kx, keysRow, hudZ, keySeg1, CPColor.C_GREY70(), bg)
-                kx += keySeg1.length
-                canv.drawString(kx, keysRow, hudZ, keySeg2, KeyTier.BRONZE.metalColor(), bg)
-                kx += keySeg2.length
-                canv.drawString(kx, keysRow, hudZ, keySeg3, KeyTier.SILVER.metalColor(), bg)
-                kx += keySeg3.length
-                canv.drawString(kx, keysRow, hudZ, keySeg4, KeyTier.GOLD.metalColor(), bg)
-                val barY = ly + layout.hpBarLineIndex
-                canv.drawString(
-                    hudXCenteredInCluster(cx, cw, lineControls.length),
-                    ly + layout.controlsLineIndex,
-                    hudZ,
-                    lineControls,
-                    CPColor.C_GREY50(),
-                    bg,
+                val botLines = listOf(
+                    hudLineFit("PLAYER DECK", textMax),
+                    hudLineFit("D:${playerDeck.draw} R:${playerDeck.discard}", textMax),
+                    hudLineFit("TOP ${playerDeck.top}", textMax),
                 )
-                val hpPrefix = "HP "
-                val maxBar = (cw - hpPrefix.length).coerceIn(8, 40)
-                val barBlockW = hpPrefix.length + maxBar
-                val hpStartX = hudXCenteredInCluster(cx, cw, barBlockW)
-                canv.drawString(hpStartX, barY, hudZ, hpPrefix, CPColor.C_WHITE(), bg)
-                val filled = (GameState.playerHealth.coerceAtMost(30).toFloat() / 30 * maxBar).toInt()
-                val barColor = when {
-                    GameState.playerHealth > 15 -> CPColor.C_GREEN1()
-                    GameState.playerHealth > 7 -> CPColor.C_YELLOW1()
-                    else -> CPColor.C_RED1()
-                }
-                for (i in 0 until maxBar) {
-                    val barChar = if (i < filled) '#' else '-'
-                    canv.drawPixel(px(barChar, barColor), hpStartX + hpPrefix.length + i, barY, hudZ)
+                for ((i, ln) in botLines.withIndex()) {
+                    val col = if (i == 0) CPColor.C_GREEN1() else CPColor.C_GREY70()
+                    canv.drawString(hudXCenteredInCluster(cx, cw, ln.length), botStart + i, hudZ, ln, col, bg)
                 }
             }
         }
@@ -1593,10 +1589,9 @@ object GameScene {
                     val cx = GridConfig.clusterOriginX
                     val cw = GridConfig.HUD_COLUMN_WIDTH
                     val centerX = cx + (cw + 1) / 2
-                    val questLines = GameState.questHudLines()
-                    val layout = computeHudLayout(canv.height(), questLines.size)
                     val cy = GridConfig.hudTopY
-                    val centerY = cy + layout.questBlockStartLine + ((questLines.size - 1).coerceAtLeast(0) / 2)
+                    val third = (GridConfig.hudTextLineCount(GameState.questHudLines().size) / 3).coerceAtLeast(4)
+                    val centerY = cy + third + 5
                     hudConfetti.spawnScreen(centerX, centerY)
                 }
             }

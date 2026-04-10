@@ -109,18 +109,18 @@ object MenuScene {
                 when (key) {
                     KEY_1 -> {
                         GameState.resetForLevel(1)
-                        kotlin.runCatching { ctx.deleteScene("game") }
+                        kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
                         ctx.addScene(GameScene.create(), false, false, false)
-                        ctx.switchScene("game", false)
+                        ctx.switchScene(SceneId.GAME, false)
                     }
-                    KEY_2 -> ctx.switchScene("levelselect", false)
+                    KEY_2 -> ctx.switchScene(SceneId.LEVEL_SELECT, false)
                     KEY_3 -> {
                         GameState.characterSelectCursor = GameState.selectedPlayerCharacter.ordinal
-                        ctx.switchScene("characterselect", false)
+                        ctx.switchScene(SceneId.CHARACTER_SELECT, false)
                     }
                     KEY_4 -> {
-                        GameState.minigamesReturnScene = "menu"
-                        ctx.switchScene("minigames", false)
+                        GameState.minigamesReturnScene = SceneId.MENU
+                        ctx.switchScene(SceneId.MINIGAMES, false)
                     }
                     KEY_Q -> ctx.exitGame()
                     else -> {}
@@ -129,7 +129,7 @@ object MenuScene {
         }
 
         return CPScene(
-            "menu",
+            SceneId.MENU.id,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)
