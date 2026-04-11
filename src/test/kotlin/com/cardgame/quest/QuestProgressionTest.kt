@@ -97,6 +97,27 @@ class QuestProgressionTest {
     }
 
     @Test
+    fun activeQuests_capAtFiveFurtherAcceptsIgnored() = withFreshState {
+        val ids = listOf(
+            "rat_hunter",
+            "slime_cleanup",
+            "first_bloodline",
+            "skirmisher",
+            "coin_chaser",
+            "haunted_clearout",
+        )
+        val byId = QuestSystem.templates.associateBy { it.id }
+        for (id in ids.take(5)) {
+            GameState.acceptQuest(byId.getValue(id))
+        }
+        assertEquals(GameState.MAX_CONCURRENT_QUESTS, GameState.activeQuests.size)
+        assertFalse(GameState.canAcceptNewQuest())
+        assertFalse(GameState.canSpawnQuestTile())
+        GameState.acceptQuest(byId.getValue("haunted_clearout"))
+        assertEquals(GameState.MAX_CONCURRENT_QUESTS, GameState.activeQuests.size)
+    }
+
+    @Test
     fun randomOffer_level3_neverOffersRatSlimeOrGhostKillQuests() = withFreshState {
         GameState.resetForLevel(3)
         val forbidden = setOf("rat_hunter", "slime_cleanup", "haunted_clearout")

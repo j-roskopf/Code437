@@ -115,18 +115,26 @@ object QuestSystem {
     )
 
     /**
-     * Picks a random quest offer. [KILL_KIND] templates are only offered when their [QuestTemplate.targetKind]
-     * actually spawns on [currentLevel], so the quest can be completed on this floor without backtracking.
+     * Picks a random quest offer. Prefers templates not in [completedQuestIds] (new this run); if none remain,
+     * cycles among any template not in [excludeQuestIds] (re-runs allowed). [KILL_KIND] quests prefer
+     * [QuestTemplate.targetKind] on [currentLevel]; if none match, falls back to any candidate in the pool.
+     * Never returns null when at least one template is not excluded (requires [templates] non-empty).
      */
     fun randomOffer(
         excludeQuestIds: Set<String> = emptySet(),
         completedQuestIds: Set<String> = emptySet(),
         currentLevel: Int = 1,
-    ): QuestTemplate? {
-        val pool = templates.filter { it.id !in excludeQuestIds && it.id !in completedQuestIds }
-        if (pool.isEmpty()) return null
+    ): QuestTemplate {
+        val notExcluded = templates.filter { it.id !in excludeQuestIds }
+        require(notExcluded.isNotEmpty()) { "randomOffer: all quest templates are active (log full overlap)" }
+        val preferIncomplete = notExcluded.filter { it.id !in completedQuestIds }
+        val pool = if (preferIncomplete.isNotEmpty()) preferIncomplete else notExcluded
+        return pickQuestPreferringFloor(pool, currentLevel)
+    }
+
+    private fun pickQuestPreferringFloor(candidates: List<QuestTemplate>, currentLevel: Int): QuestTemplate {
         val onFloor = LevelConfig.enemyKindsForLevel(currentLevel).toSet()
-        val levelFiltered = pool.filter { t ->
+        val levelFiltered = candidates.filter { t ->
             when (t.targetType) {
                 QuestTargetType.KILL_KIND -> {
                     val k = t.targetKind ?: return@filter false
@@ -137,8 +145,8 @@ object QuestSystem {
         }
         val effective =
             if (levelFiltered.isNotEmpty()) levelFiltered
-            else pool.filter { it.targetType != QuestTargetType.KILL_KIND }
-        return if (effective.isEmpty()) null else effective.random()
+            else candidates.filter { it.targetType != QuestTargetType.KILL_KIND }
+        return if (effective.isNotEmpty()) effective.random() else candidates.random()
     }
 
     /**

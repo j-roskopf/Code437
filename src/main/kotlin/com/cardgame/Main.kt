@@ -6,6 +6,7 @@ import com.cardgame.scene.InventoryScene
 import com.cardgame.scene.LevelCompleteScene
 import com.cardgame.scene.LevelSelectScene
 import com.cardgame.scene.CharacterSelectScene
+import com.cardgame.scene.DebugMenuScene
 import com.cardgame.game.GameState
 import com.cardgame.game.GridConfig
 import com.cardgame.scene.SceneId
@@ -84,7 +85,8 @@ fun main(args: Array<String>) {
             RestScene.create(),
             RunSummaryScene.create(),
             GameOverScene.create(),
-            InventoryScene.create()
+            InventoryScene.create(),
+            DebugMenuScene.create()
         )
         CPEngine.startGame(SceneId.MENU.id, scenes)
     } finally {

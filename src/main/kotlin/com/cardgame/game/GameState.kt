@@ -30,6 +30,12 @@ object GameState {
         val top: String,
     )
 
+    /** Which deck supplies the next grid spawn; shown in the HUD spawn queue. */
+    enum class SpawnSource {
+        ENEMY,
+        PLAYER,
+    }
+
     enum class PlayerDeckCard(val label: String) {
         POTION("Potion"),
         SHIELD("Shield"),
@@ -37,8 +43,19 @@ object GameState {
         BOW_ARROW("Bow+Arrow"),
         CAMPFIRE("Campfire"),
         ARMOR("Armor"),
-        KEY("Key"),
+        KEY_BRONZE("Bronze Key"),
+        KEY_SILVER("Silver Key"),
+        KEY_GOLD("Gold Key"),
         CHEST("Chest"),
+        ;
+
+        /** Grid key tier for key cards; null for non-key cards. */
+        fun keyTier(): KeyTier? = when (this) {
+            KEY_BRONZE -> KeyTier.BRONZE
+            KEY_SILVER -> KeyTier.SILVER
+            KEY_GOLD -> KeyTier.GOLD
+            else -> null
+        }
     }
 
     /** Chosen on the character screen; not cleared by [resetForLevel]. */
@@ -129,6 +146,12 @@ object GameState {
     var keysSilver: Int = 0
     var keysGold: Int = 0
 
+    /**
+     * At [ShopScene], spend this many keys of a lower tier to receive **one** key of the next tier
+     * (bronze→silver, silver→gold). Gold cannot be traded up.
+     */
+    const val KEY_TRADE_UP_COST = 3
+
     /** 1-based; set before [GameScene.create]. */
     var currentLevel: Int = 1
 
@@ -142,10 +165,17 @@ object GameState {
     var inventoryReturnScene: SceneId = SceneId.MENU
 
     /**
-     * Toggle with Z in [GameScene]. When true: highlights secret-room tiles and the player takes
-     * no HP loss from combat, spikes, or bomb blasts.
+     * From the Z-key debug menu: no HP loss from combat, spikes, or bomb blasts; highlights secret-room tiles.
      */
-    var debugMode: Boolean = false
+    var debugInvincible: Boolean = false
+
+    /** From the Z-key debug menu: enemy kills do not increase [score]. */
+    var debugNoScore: Boolean = false
+
+    fun addScorePoints(delta: Int) {
+        if (delta <= 0 || debugNoScore) return
+        score += delta
+    }
 
     /**
      * When an elite kill pushes [score] to the current level target, we defer the level-complete
@@ -153,6 +183,13 @@ object GameState {
      * pulled away before collecting it.
      */
     var deferLevelCompleteForEliteKey: Boolean = false
+
+    /**
+     * After defeating an **elite** with [EnemyCard.secretRoom], the secret room opens only after the
+     * player moves onto that cell again (typically after collecting the dropped key). Cleared when
+     * entering the secret room or on level advance/reset.
+     */
+    var secretRoomPendingCell: Pair<Int, Int>? = null
 
     /** Set before switching to the run summary scene (death vs full run win). */
     var runEndKind: RunEndKind = RunEndKind.DEATH
@@ -168,9 +205,24 @@ object GameState {
         PlayerDeckCard.BOW_ARROW,
         PlayerDeckCard.CAMPFIRE,
         PlayerDeckCard.ARMOR,
-        PlayerDeckCard.KEY,
+        PlayerDeckCard.KEY_BRONZE,
+        PlayerDeckCard.KEY_SILVER,
+        PlayerDeckCard.KEY_GOLD,
     )
-    private const val ENEMY_DECK_BUILD_SIZE = 60
+    private const val ENEMY_DECK_BUILD_SIZE = 30
+
+    /** Visible upcoming spawn sources; consumed by [drawSpawnForCell]. */
+    const val SPAWN_QUEUE_DISPLAY_SIZE = 5
+
+    /**
+     * Full board at level start: every non-player cell is one deck draw — this many from the enemy
+     * deck and this many from the player deck; assignment order is shuffled. Must equal
+     * [GridConfig.COLS] * [GridConfig.ROWS] - 1.
+     */
+    const val INITIAL_BOARD_ENEMY_DRAWS = 10
+    const val INITIAL_BOARD_PLAYER_DRAWS = 4
+
+    private val spawnQueue: MutableList<SpawnSource> = mutableListOf()
 
     private val enemyDeckDraw: MutableList<EnemyDeckCard> = mutableListOf()
     private val enemyDeckDiscard: MutableList<EnemyDeckCard> = mutableListOf()
@@ -204,17 +256,24 @@ object GameState {
     /** Accepted quests in progress (progress counts only actions after acceptance). */
     val activeQuests: MutableList<ActiveQuest> = mutableListOf()
 
-    /** Max concurrent accepted quests; also limits quest-tile spawns when full. */
-    private const val MAX_CONCURRENT_QUESTS = 12
+    /** Max concurrent accepted quests; also limits quest-tile spawns and new offers when full. */
+    const val MAX_CONCURRENT_QUESTS = 5
 
     fun canSpawnQuestTile(): Boolean =
         !hasCompletedAllQuestTemplates() && activeQuests.size < MAX_CONCURRENT_QUESTS
+
+    fun canAcceptNewQuest(): Boolean = activeQuests.size < MAX_CONCURRENT_QUESTS
 
     /** Template ids for quests already accepted (incomplete) — exclude from new offers. */
     fun activeIncompleteQuestTemplateIds(): Set<String> =
         activeQuests.map { it.template.id }.toSet()
     /** Quest shown in [QuestScene] after stepping on a quest tile. */
     var pendingQuestOffer: QuestTemplate? = null
+    /**
+     * Stepped on a quest tile while [activeQuests] was already at [MAX_CONCURRENT_QUESTS];
+     * [QuestScene] shows a full-log message (no accept).
+     */
+    var pendingQuestAtCapacity: Boolean = false
     /** One-shot trigger so HUD can play a quest-complete confetti burst. */
     var hudQuestCelebrate: Boolean = false
     var hudQuestFlashText: String = ""
@@ -278,6 +337,38 @@ object GameState {
         return false
     }
 
+    fun canTradeBronzeKeysForSilver(): Boolean = keysBronze >= KEY_TRADE_UP_COST
+
+    fun canTradeSilverKeysForGold(): Boolean = keysSilver >= KEY_TRADE_UP_COST
+
+    /** Spend [KEY_TRADE_UP_COST] bronze keys for 1 silver. */
+    fun tryTradeBronzeKeysForSilver(): Boolean {
+        if (!canTradeBronzeKeysForSilver()) return false
+        keysBronze -= KEY_TRADE_UP_COST
+        keysSilver++
+        return true
+    }
+
+    /** Spend [KEY_TRADE_UP_COST] silver keys for 1 gold. */
+    fun tryTradeSilverKeysForGold(): Boolean {
+        if (!canTradeSilverKeysForGold()) return false
+        keysSilver -= KEY_TRADE_UP_COST
+        keysGold++
+        return true
+    }
+
+    /**
+     * Counts of key [PlayerDeckCard]s in the current draw + discard piles (not yet resolved on the grid).
+     * Order: bronze, silver, gold.
+     */
+    fun playerDeckKeyCardsInPiles(): Triple<Int, Int, Int> {
+        val all = playerDeckDraw + playerDeckDiscard
+        val b = all.count { it == PlayerDeckCard.KEY_BRONZE }
+        val s = all.count { it == PlayerDeckCard.KEY_SILVER }
+        val g = all.count { it == PlayerDeckCard.KEY_GOLD }
+        return Triple(b, s, g)
+    }
+
     fun reset() {
         resetForLevel(1)
     }
@@ -301,6 +392,7 @@ object GameState {
         RunStats.reset()
         activeQuests.clear()
         pendingQuestOffer = null
+        pendingQuestAtCapacity = false
         hudQuestCelebrate = false
         EnemyKind.entries.forEach { killCounter[it] = 0 }
         eliteKills = 0
@@ -313,8 +405,13 @@ object GameState {
         temporaryShield = 0
         wallChipAtkPenaltySteps = 0
         deferLevelCompleteForEliteKey = false
+        secretRoomPendingCell = null
+        spawnQueue.clear()
+        refillSpawnQueue()
         resetPlayerDeck()
         rebuildEnemyDeckForCurrentLevel()
+        debugInvincible = false
+        debugNoScore = false
     }
 
     fun addMoney(amount: Int) {
@@ -341,6 +438,9 @@ object GameState {
             playerGridX = 0
             playerGridY = 0
             deferLevelCompleteForEliteKey = false
+            secretRoomPendingCell = null
+            spawnQueue.clear()
+            refillSpawnQueue()
             rebuildEnemyDeckForCurrentLevel()
         }
     }
@@ -383,6 +483,25 @@ object GameState {
             }
         } ?: "reshuffle"
         return DeckSnapshot(enemyDeckDraw.size, enemyDeckDiscard.size, top)
+    }
+
+    /** Upcoming spawn sources (enemy vs player deck); always length [SPAWN_QUEUE_DISPLAY_SIZE]. */
+    fun peekSpawnQueue(): List<SpawnSource> {
+        refillSpawnQueue()
+        return spawnQueue.toList()
+    }
+
+    private fun refillSpawnQueue() {
+        while (spawnQueue.size < SPAWN_QUEUE_DISPLAY_SIZE) {
+            spawnQueue.add(if (Random.nextBoolean()) SpawnSource.ENEMY else SpawnSource.PLAYER)
+        }
+    }
+
+    private fun popSpawnSource(): SpawnSource {
+        refillSpawnQueue()
+        val s = spawnQueue.removeAt(0)
+        refillSpawnQueue()
+        return s
     }
 
     private fun resetPlayerDeck() {
@@ -476,9 +595,19 @@ object GameState {
         PlayerDeckCard.BOW_ARROW -> ItemType.ATTACK_BOOST
         PlayerDeckCard.CAMPFIRE -> ItemType.REST
         PlayerDeckCard.ARMOR -> ItemType.HAND_ARMOR
-        PlayerDeckCard.KEY -> ItemType.KEY
+        PlayerDeckCard.KEY_BRONZE, PlayerDeckCard.KEY_SILVER, PlayerDeckCard.KEY_GOLD -> ItemType.KEY
         PlayerDeckCard.CHEST -> ItemType.CHEST
     }
+
+    private fun playerDeckCardFromResolvedPickup(item: GridItem): PlayerDeckCard? =
+        when (item.type) {
+            ItemType.KEY -> when (item.tier) {
+                KeyTier.BRONZE -> PlayerDeckCard.KEY_BRONZE
+                KeyTier.SILVER -> PlayerDeckCard.KEY_SILVER
+                KeyTier.GOLD -> PlayerDeckCard.KEY_GOLD
+            }
+            else -> toDeckCard(item.type)
+        }
 
     fun onSpawnedItemResolved(item: GridItem) {
         if (item.type == ItemType.KEY) {
@@ -495,8 +624,11 @@ object GameState {
             item.type == ItemType.SPIKES || item.type == ItemType.BOMB || item.type == ItemType.WALL -> {
                 enemyDeckDiscard.add(EnemyDeckCard(hazardType = item.type))
             }
+            item.type == ItemType.QUEST && item.spawnedFromEnemyDeck -> {
+                enemyDeckDiscard.add(EnemyDeckCard(hazardType = ItemType.QUEST))
+            }
             else -> {
-                toDeckCard(item.type)?.let { dc ->
+                playerDeckCardFromResolvedPickup(item)?.let { dc ->
                     if (dc == PlayerDeckCard.ARMOR) {
                         // Armor is consumed permanently; don't cycle it back into the draw/discard loop.
                         val deck = characterDecks.getOrPut(selectedPlayerCharacter) { mutableListOf() }
@@ -516,13 +648,41 @@ object GameState {
         persistDecksIfEnabled()
     }
 
+    /** Spawns a grid item from a drawn [PlayerDeckCard]; key cards use the tier that matches the deck entry. */
+    private fun spawnGridItemFromPlayerDeckCard(
+        card: PlayerDeckCard,
+        gridX: Int,
+        gridY: Int,
+        existingItems: List<GridItem>,
+        existingEnemies: List<EnemyCard>,
+    ): GridItem {
+        val kt = card.keyTier()
+        return if (kt != null) {
+            LevelGenerator.spawnKeyAtTier(kt, gridX, gridY, existingItems, existingEnemies)
+        } else {
+            LevelGenerator.spawnItemFromType(
+                deckCardToItemType(card),
+                gridX,
+                gridY,
+                existingItems,
+                existingEnemies,
+            )
+        }
+    }
+
     fun drawSpawnForCell(
         gridX: Int,
         gridY: Int,
         existingItems: List<GridItem>,
         existingEnemies: List<EnemyCard>,
+        /** If set (e.g. initial board fill), does not consume the HUD spawn queue. */
+        spawnSourceOverride: SpawnSource? = null,
     ): Pair<GridItem?, EnemyCard?> {
-        val spawnEnemySide = Random.nextBoolean()
+        val spawnEnemySide = if (spawnSourceOverride != null) {
+            spawnSourceOverride == SpawnSource.ENEMY
+        } else {
+            popSpawnSource() == SpawnSource.ENEMY
+        }
         val result = if (spawnEnemySide) {
             val d = drawEnemyDeckCard()
             if (d.hazardType != null) {
@@ -542,6 +702,7 @@ object GameState {
                         gridY,
                         existingItems,
                         existingEnemies,
+                        spawnedFromEnemyDeck = true,
                     )
                 }
                 Pair(spawned, null)
@@ -560,10 +721,17 @@ object GameState {
             }
         } else {
             val c = drawPlayerDeckCardForSpawn(existingItems)
-            Pair(LevelGenerator.spawnItemFromType(deckCardToItemType(c), gridX, gridY, existingItems, existingEnemies), null)
+            Pair(spawnGridItemFromPlayerDeckCard(c, gridX, gridY, existingItems, existingEnemies), null)
         }
         persistDecksIfEnabled()
         return result
+    }
+
+    /** Legacy save files used [KEY]; map to [PlayerDeckCard.KEY_BRONZE]. */
+    private fun parsePersistedPlayerDeckCard(raw: String): PlayerDeckCard? {
+        val t = raw.trim()
+        if (t == "KEY") return PlayerDeckCard.KEY_BRONZE
+        return runCatching { PlayerDeckCard.valueOf(t) }.getOrNull()
     }
 
     /** Call once at process start (after [GameState] defaults exist) to restore saved decks. */
@@ -586,7 +754,7 @@ object GameState {
                 list.clear()
                 if (csv.isNotBlank()) {
                     csv.split(",").forEach { part ->
-                        runCatching { list.add(PlayerDeckCard.valueOf(part)) }
+                        parsePersistedPlayerDeckCard(part)?.let { list.add(it) }
                     }
                 }
             }
@@ -595,7 +763,7 @@ object GameState {
                 target.clear()
                 if (csv.isBlank()) return
                 csv.split(",").forEach { part ->
-                    runCatching { target.add(PlayerDeckCard.valueOf(part)) }
+                    parsePersistedPlayerDeckCard(part)?.let { target.add(it) }
                 }
             }
             parsePlayerCards("pd", playerDeckDraw)
@@ -611,6 +779,18 @@ object GameState {
             }
             parseEnemyLine("ed", enemyDeckDraw)
             parseEnemyLine("edd", enemyDeckDiscard)
+            map["sq"]?.let { csv ->
+                spawnQueue.clear()
+                if (csv.isNotBlank()) {
+                    for (part in csv.split(",")) {
+                        when (part.trim()) {
+                            "E" -> spawnQueue.add(SpawnSource.ENEMY)
+                            "P" -> spawnQueue.add(SpawnSource.PLAYER)
+                        }
+                    }
+                }
+            }
+            refillSpawnQueue()
         } catch (_: Exception) {
             return
         }
@@ -629,6 +809,10 @@ object GameState {
         sb.appendLine("prd=${playerDeckDiscard.joinToString(",") { it.name }}")
         sb.appendLine("ed=${enemyDeckDraw.joinToString("|") { encodeEnemyDeckCardPersist(it) }}")
         sb.appendLine("edd=${enemyDeckDiscard.joinToString("|") { encodeEnemyDeckCardPersist(it) }}")
+        refillSpawnQueue()
+        sb.appendLine(
+            "sq=${spawnQueue.joinToString(",") { if (it == SpawnSource.ENEMY) "E" else "P" }}",
+        )
         DeckPersistence.save(sb.toString())
     }
 
@@ -664,9 +848,10 @@ object GameState {
 
     fun acceptQuest(template: QuestTemplate) {
         pendingQuestOffer = null
-        if (template.id in completedQuestIds) return
+        pendingQuestAtCapacity = false
         if (activeQuests.any { it.template.id == template.id }) return
         if (activeQuests.size >= MAX_CONCURRENT_QUESTS) return
+        completedQuestIds.remove(template.id)
         activeQuests.add(
             ActiveQuest(
                 template = template,
@@ -678,6 +863,7 @@ object GameState {
 
     fun denyPendingQuest() {
         pendingQuestOffer = null
+        pendingQuestAtCapacity = false
     }
 
     fun completedQuestIds(): Set<String> = completedQuestIds.toSet()
@@ -870,7 +1056,7 @@ object GridConfig {
     /**
      * Upper bound for quest lines in [GameState.questHudLines] when sizing the default emuterm window.
      */
-    private const val QUEST_HUD_LINES_WORST_CASE = 10
+    private const val QUEST_HUD_LINES_WORST_CASE = GameState.MAX_CONCURRENT_QUESTS
 
     /**
      * Minimum CosPlay emuterm canvas: one card-width HUD column + gap + grid, centered.
@@ -880,13 +1066,16 @@ object GridConfig {
     val MIN_EMUTERM_ROWS: Int
         get() = clusterPixelHeight(hudTextLineCount(QUEST_HUD_LINES_WORST_CASE))
 
-    /** HUD text lines: 5 meta + quest block + 4 footer (inventory, keys, controls, HP bar). */
+    /** HUD text lines (approx.): meta + quest block + footer; [GameScene] also draws I/Z controller hints. */
     fun hudTextLineCount(questHudLineCount: Int): Int =
         5 + questHudLineCount.coerceAtLeast(1) + 4
 
+    /** Extra canvas rows below the grid for the spawn queue strip ([GameScene] draws there). */
+    const val SPAWN_QUEUE_BELOW_GRID_ROWS = 2
+
     /** Vertical size of the game cluster. Left HUD/deck column is fixed to thirds of board height. */
     fun clusterPixelHeight(questHudLineCount: Int): Int {
-        return GRID_TOTAL_HEIGHT
+        return GRID_TOTAL_HEIGHT + SPAWN_QUEUE_BELOW_GRID_ROWS
     }
 
     /** Width of HUD + deck column (one playing-card width). */
@@ -953,6 +1142,23 @@ object GridConfig {
 
     fun cellScreenX(gridX: Int) = offsetX + gridX * CELL_WIDTH
     fun cellScreenY(gridY: Int) = offsetY + gridY * CELL_HEIGHT
+
+    /**
+     * First character row of the quest block in the middle HUD (CARD … KEYS, then N quest lines, then I/Z).
+     * Matches [com.cardgame.scene.GameScene] `createHudSprite`.
+     */
+    fun questHudTextScreenRow(debugHud: Boolean): Int {
+        val ly = hudTopY
+        val oneThird = (GRID_TOTAL_HEIGHT / 3).coerceAtLeast(4)
+        val midStart = ly + oneThird
+        val dbg = if (debugHud) 1 else 0
+        val linesBeforeQuestBlock = 8 + dbg
+        val questCount = GameState.questHudLines().size.coerceAtLeast(1)
+        val middleLineCount = linesBeforeQuestBlock + questCount + 2
+        val visibleCount = minOf(middleLineCount, oneThird)
+        val middleStartY = midStart + (oneThird - visibleCount).coerceAtLeast(0) / 2
+        return middleStartY + linesBeforeQuestBlock
+    }
 }
 
 object LevelGenerator {
@@ -963,8 +1169,6 @@ object LevelGenerator {
         else -> KeyTier.GOLD
     }
 
-    /** Share of item spawns that roll a hazard ([ItemType.SPIKES] / [ItemType.BOMB]); rest use normal loot. */
-    private const val HAZARD_SPAWN_CHANCE = 0.02f
     /** Chance to place one hidden secret-room trigger on a normal item/enemy tile. */
     private const val SECRET_ROOM_CHANCE = 0.03f
     /**
@@ -972,12 +1176,19 @@ object LevelGenerator {
      * Lower = equipment spawns less often vs consumables/keys/etc.
      */
     private const val EQUIPMENT_LOOT_WEIGHT = 0.18f
-    /** Target chance for wall on non-hazard item rolls (when walls are allowed). */
-    private const val WALL_KEEP_CHANCE = 0.15f
     private const val WALL_DURABILITY = 2
     private const val ELITE_CHANCE = 0.18f
-    /** Share of non-wall enemy-deck slots that spawn a tiered [ItemType.CHEST] instead of an enemy. */
-    private const val CHEST_IN_ENEMY_DECK_CHANCE = 0.07f
+    /**
+     * Shared sequential-roll probabilities for [buildEnemyDeckForLevel] and [randomItemAt] (after the hazard branch):
+     * wall, chest, quest, gambling; remainder is an enemy card or general loot (see each call site).
+     */
+    private const val SPAWNER_HAZARD_CHANCE = 0.05f
+    private const val SPAWNER_WALL_CHANCE = 0.05f
+    private const val SPAWNER_CHEST_CHANCE = 0.10f
+    private const val SPAWNER_QUEST_CHANCE = 0.05f
+    private const val SPAWNER_GAMBLING_CHANCE = 0.05f
+    /** When quest offers are still available, ensure at least this many quest cards per full enemy deck build. */
+    private const val MIN_QUEST_CARDS_PER_ENEMY_DECK = 3
 
     /**
      * After blocking already-equipped gear, prefer non-equipment most of the time so armor is rarer.
@@ -1024,25 +1235,40 @@ object LevelGenerator {
         val hazardInPool = listOf(ItemType.SPIKES, ItemType.BOMB).filter { it in pool }
         val type = when {
             nonHazardPool.isEmpty() -> pool[Random.nextInt(pool.size)]
-            hazardInPool.isNotEmpty() && Random.nextFloat() < HAZARD_SPAWN_CHANCE ->
+            hazardInPool.isNotEmpty() && Random.nextFloat() < SPAWNER_HAZARD_CHANCE ->
                 hazardInPool[Random.nextInt(hazardInPool.size)]
             else -> {
                 val tunedPool = lootPoolForNonHazardRoll(nonHazardPool, existingItems)
                 val canRollWall = ItemType.WALL in tunedPool
-                if (canRollWall && Random.nextFloat() < WALL_KEEP_CHANCE) {
-                    ItemType.WALL
-                } else {
-                    val noWallPool = tunedPool.filter { it != ItemType.WALL }
-                    val basePool = if (noWallPool.isNotEmpty()) noWallPool else tunedPool
-                    QuestSystem.tunedItemTypeFromPool(
-                        basePool,
-                        canSpawnQuestTile = GameState.canSpawnQuestTile(),
-                        allQuestsCompleted = GameState.hasCompletedAllQuestTemplates()
-                    )
+                when {
+                    canRollWall && Random.nextFloat() < SPAWNER_WALL_CHANCE -> ItemType.WALL
+                    Random.nextFloat() < SPAWNER_CHEST_CHANCE && ItemType.CHEST in tunedPool -> ItemType.CHEST
+                    GameState.canSpawnQuestTile() &&
+                        !GameState.hasCompletedAllQuestTemplates() &&
+                        Random.nextFloat() < SPAWNER_QUEST_CHANCE &&
+                        ItemType.QUEST in tunedPool -> ItemType.QUEST
+                    Random.nextFloat() < SPAWNER_GAMBLING_CHANCE && ItemType.GAMBLING in pool -> ItemType.GAMBLING
+                    else -> {
+                        val noWallPool = tunedPool.filter { it != ItemType.WALL }
+                        val remainder = noWallPool.filter {
+                            it != ItemType.CHEST && it != ItemType.QUEST && it != ItemType.GAMBLING
+                        }
+                        val basePool =
+                            if (remainder.isNotEmpty()) remainder
+                            else noWallPool.ifEmpty { tunedPool }
+                        QuestSystem.tunedItemTypeFromPool(
+                            basePool,
+                            canSpawnQuestTile = false,
+                            allQuestsCompleted = GameState.hasCompletedAllQuestTemplates(),
+                        )
+                    }
                 }
             }
         }
-        val tier = KeyTier.entries.random()
+        val tier = when (type) {
+            ItemType.CHEST -> keyTierForLevel(GameState.currentLevel)
+            else -> KeyTier.entries.random()
+        }
         val value = when (type) {
             ItemType.HEALTH_POTION -> Random.nextInt(3, 8)
             ItemType.ATTACK_BOOST -> Random.nextInt(1, 4)
@@ -1159,10 +1385,11 @@ object LevelGenerator {
         gridY: Int,
         existingItems: List<GridItem> = emptyList(),
         existingEnemies: List<EnemyCard> = emptyList(),
+        spawnedFromEnemyDeck: Boolean = false,
     ): GridItem {
         if (type == ItemType.CHEST) return randomItemAt(gridX, gridY, existingItems, existingEnemies)
         val base = randomItemAt(gridX, gridY, existingItems, existingEnemies)
-        if (base.type == type) return base
+        if (base.type == type) return base.copy(spawnedFromEnemyDeck = spawnedFromEnemyDeck)
         val tier = KeyTier.entries.random()
         val value = when (type) {
             ItemType.HEALTH_POTION -> Random.nextInt(3, 8)
@@ -1202,6 +1429,7 @@ object LevelGenerator {
             bombTicks = bombTicks,
             wallHp = wallHp,
             secretRoom = secretRoom,
+            spawnedFromEnemyDeck = spawnedFromEnemyDeck,
         )
     }
 
@@ -1274,18 +1502,26 @@ object LevelGenerator {
         val deck = mutableListOf<GameState.EnemyDeckCard>()
         val pool = LevelConfig.enemyKindsForLevel(level).ifEmpty { listOf(EnemyKind.RAT) }
         repeat(count.coerceAtLeast(1)) {
-            if (Random.nextFloat() < HAZARD_SPAWN_CHANCE) {
+            if (Random.nextFloat() < SPAWNER_HAZARD_CHANCE) {
                 val hz = if (Random.nextBoolean()) ItemType.SPIKES else ItemType.BOMB
                 deck.add(GameState.EnemyDeckCard(hazardType = hz))
-            } else if (Random.nextFloat() < WALL_KEEP_CHANCE) {
+            } else if (Random.nextFloat() < SPAWNER_WALL_CHANCE) {
                 deck.add(GameState.EnemyDeckCard(hazardType = ItemType.WALL))
-            } else if (Random.nextFloat() < CHEST_IN_ENEMY_DECK_CHANCE) {
+            } else if (Random.nextFloat() < SPAWNER_CHEST_CHANCE) {
                 deck.add(
                     GameState.EnemyDeckCard(
                         hazardType = ItemType.CHEST,
                         hazardTier = keyTierForLevel(level),
                     )
                 )
+            } else if (
+                GameState.canSpawnQuestTile() &&
+                !GameState.hasCompletedAllQuestTemplates() &&
+                Random.nextFloat() < SPAWNER_QUEST_CHANCE
+            ) {
+                deck.add(GameState.EnemyDeckCard(hazardType = ItemType.QUEST))
+            } else if (Random.nextFloat() < SPAWNER_GAMBLING_CHANCE) {
+                deck.add(GameState.EnemyDeckCard(hazardType = ItemType.GAMBLING))
             } else {
                 deck.add(
                     GameState.EnemyDeckCard(
@@ -1295,22 +1531,71 @@ object LevelGenerator {
                 )
             }
         }
+        ensureMinimumQuestCardsInEnemyDeck(deck)
         return deck
     }
 
     /**
-     * Fills every grid cell except [playerCell] with a random mix of items and enemies.
-     * Refills are independent of what was on a tile before — any cell can become item or enemy.
+     * Quest tiles were only rolled on the player-deck item path; enemy-deck draws never included
+     * [ItemType.QUEST]. Replace plain enemy slots until the deck has a floor of quest offers when allowed.
+     */
+    private fun ensureMinimumQuestCardsInEnemyDeck(deck: MutableList<GameState.EnemyDeckCard>) {
+        if (!GameState.canSpawnQuestTile() || GameState.hasCompletedAllQuestTemplates()) return
+        var q = deck.count { it.hazardType == ItemType.QUEST }
+        if (q >= MIN_QUEST_CARDS_PER_ENEMY_DECK) return
+        val enemyOnlyIdx = deck.indices.filter {
+            val c = deck[it]
+            c.hazardType == null && c.enemyKind != null
+        }.shuffled()
+        var i = 0
+        while (q < MIN_QUEST_CARDS_PER_ENEMY_DECK && i < enemyOnlyIdx.size) {
+            deck[enemyOnlyIdx[i]] = GameState.EnemyDeckCard(hazardType = ItemType.QUEST)
+            q++
+            i++
+        }
+    }
+
+    /**
+     * Shuffled spawn sources for the initial board: [GameState.INITIAL_BOARD_ENEMY_DRAWS] enemy-deck cells
+     * and [GameState.INITIAL_BOARD_PLAYER_DRAWS] player-deck cells (order randomized with [rng]).
+     */
+    fun initialBoardSpawnSources(rng: Random = Random.Default): List<GameState.SpawnSource> {
+        val sources = buildList {
+            repeat(GameState.INITIAL_BOARD_ENEMY_DRAWS) { add(GameState.SpawnSource.ENEMY) }
+            repeat(GameState.INITIAL_BOARD_PLAYER_DRAWS) { add(GameState.SpawnSource.PLAYER) }
+        }
+        return sources.shuffled(rng)
+    }
+
+    /**
+     * Fills every grid cell except [playerCell] for a new level: exactly [GameState.INITIAL_BOARD_ENEMY_DRAWS]
+     * enemy-deck spawns and [GameState.INITIAL_BOARD_PLAYER_DRAWS] player-deck spawns (order shuffled).
+     * Respawns during play still use [GameState.drawSpawnForCell] without overrides (spawn queue).
      */
     fun fillAllCellsExcept(playerCell: Pair<Int, Int>): Pair<List<GridItem>, List<EnemyCard>> {
+        require(
+            GameState.INITIAL_BOARD_ENEMY_DRAWS + GameState.INITIAL_BOARD_PLAYER_DRAWS ==
+                GridConfig.COLS * GridConfig.ROWS - 1,
+        ) {
+            "INITIAL_BOARD_ENEMY_DRAWS + INITIAL_BOARD_PLAYER_DRAWS must equal non-player cells"
+        }
         val items = mutableListOf<GridItem>()
         val enemies = mutableListOf<EnemyCard>()
         val cells = (0 until GridConfig.COLS).flatMap { x ->
             (0 until GridConfig.ROWS).map { y -> Pair(x, y) }
         }.filter { it != playerCell }.shuffled()
 
-        for (pos in cells) {
-            val spawn = GameState.drawSpawnForCell(pos.first, pos.second, items, enemies)
+        val sources = initialBoardSpawnSources()
+
+        for (i in cells.indices) {
+            val pos = cells[i]
+            val spawn = GameState.drawSpawnForCell(
+                pos.first,
+                pos.second,
+                items,
+                enemies,
+                spawnSourceOverride = sources[i],
+            )
             if (spawn.first != null) {
                 items.add(spawn.first!!)
             } else if (spawn.second != null) {

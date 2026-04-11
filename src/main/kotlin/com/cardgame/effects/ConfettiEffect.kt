@@ -11,7 +11,9 @@ import kotlin.random.Random
  */
 class ConfettiEffect(
     private val maxParticles: Int = 30,
-    private val maxAge: Int = 18
+    private val maxAge: Int = 18,
+    /** CosPlay z-order for drawn pixels (e.g. above HUD text at 15). */
+    private val drawZ: Int = 10,
 ) {
     private data class Particle(
         var x: Float,
@@ -91,7 +93,7 @@ class ConfettiEffect(
                 val g = (p.color.green() * fade).toInt().coerceIn(0, 255)
                 val b = (p.color.blue() * fade).toInt().coerceIn(0, 255)
                 val px = CPPixel(p.ch, CPColor(r, g, b, "cf"), Option.empty(), 0)
-                canv.drawPixel(px, ix, iy, 10)  // high z to render on top
+                canv.drawPixel(px, ix, iy, drawZ)
             }
         }
     }

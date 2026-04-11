@@ -25,7 +25,7 @@ class DeckLoopTest {
         GameState.selectedPlayerCharacter = PlayerCharacter.KNIGHT
         val kBefore = GameState.characterDeckCards(PlayerCharacter.KNIGHT).size
         val tBefore = GameState.characterDeckCards(PlayerCharacter.THIEF).size
-        GameState.addCardToPlayerDeck(GameState.PlayerDeckCard.KEY)
+        GameState.addCardToPlayerDeck(GameState.PlayerDeckCard.KEY_BRONZE)
         val kAfter = GameState.characterDeckCards(PlayerCharacter.KNIGHT).size
         val tAfter = GameState.characterDeckCards(PlayerCharacter.THIEF).size
         assertEquals(kBefore + 1, kAfter)
@@ -39,7 +39,9 @@ class DeckLoopTest {
             val spawn = GameState.drawSpawnForCell(1, 1, emptyList(), emptyList())
             spawn.first?.let { item ->
                 if (item.type != ItemType.SPIKES && item.type != ItemType.BOMB && item.type != ItemType.WALL) {
-                    if (!(item.type == ItemType.CHEST && item.spawnedFromEnemyDeck)) {
+                    val skipEnemyOnlyTile =
+                        (item.type == ItemType.CHEST || item.type == ItemType.GAMBLING) && item.spawnedFromEnemyDeck
+                    if (!skipEnemyOnlyTile) {
                         seenGood.add(item.type)
                     }
                 }
@@ -57,6 +59,7 @@ class DeckLoopTest {
             ItemType.KEY,
             ItemType.REST,
             ItemType.SHOP,
+            ItemType.QUEST,
             ItemType.HAND_ARMOR,
             ItemType.HELMET,
             ItemType.NECKLACE,

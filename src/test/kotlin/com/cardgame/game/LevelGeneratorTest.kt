@@ -1,6 +1,7 @@
 package com.cardgame.game
 
 import com.cardgame.testsupport.TestFixtures.withFreshState
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -14,6 +15,13 @@ class LevelGeneratorTest {
         assertEquals(KeyTier.SILVER, LevelGenerator.keyTierForLevel(4))
         assertEquals(KeyTier.SILVER, LevelGenerator.keyTierForLevel(6))
         assertEquals(KeyTier.GOLD, LevelGenerator.keyTierForLevel(7))
+    }
+
+    @Test
+    fun buildEnemyDeck_includesQuestHazardCards() = withFreshState {
+        val deck = LevelGenerator.buildEnemyDeckForLevel(1, 120)
+        val quests = deck.filter { it.hazardType == ItemType.QUEST }
+        assertTrue(quests.size >= 3, "Enemy deck should include at least MIN_QUEST_CARDS_PER_ENEMY_DECK quest tiles when quests remain")
     }
 
     @Test
@@ -57,8 +65,8 @@ class LevelGeneratorTest {
             if (item.type == ItemType.SPIKES || item.type == ItemType.BOMB) hazards++
         }
         val rate = hazards.toDouble() / samples.toDouble()
-        assertTrue(rate > 0.002, "Expected non-zero-ish hazard rate, got $rate")
-        assertTrue(rate < 0.08, "Expected low hazard rate, got $rate")
+        assertTrue(rate > 0.02, "Expected ~5% hazard rate (shared spawner), got $rate")
+        assertTrue(rate < 0.10, "Expected low hazard rate, got $rate")
     }
 
     @Test
@@ -73,8 +81,8 @@ class LevelGeneratorTest {
             if (item.type == ItemType.WALL) wall++
         }
         val rate = wall.toDouble() / nonHazard.toDouble()
-        assertTrue(rate > 0.06, "Wall rate too low: $rate")
-        assertTrue(rate < 0.26, "Wall rate too high: $rate")
+        assertTrue(rate > 0.03, "Wall rate too low (~5% of non-hazard rolls): $rate")
+        assertTrue(rate < 0.10, "Wall rate too high (~5% of non-hazard rolls): $rate")
     }
 
     @Test
@@ -101,6 +109,24 @@ class LevelGeneratorTest {
                 existing.firstOrNull { !it.collected }?.collected = true
             }
         }
+    }
+
+    @Test
+    fun initialBoardSpawnSources_hasTenEnemyAndFourPlayer() {
+        val sources = LevelGenerator.initialBoardSpawnSources(Random(0L))
+        assertEquals(GridConfig.COLS * GridConfig.ROWS - 1, sources.size)
+        assertEquals(GameState.INITIAL_BOARD_ENEMY_DRAWS, sources.count { it == GameState.SpawnSource.ENEMY })
+        assertEquals(GameState.INITIAL_BOARD_PLAYER_DRAWS, sources.count { it == GameState.SpawnSource.PLAYER })
+    }
+
+    @Test
+    fun fillAllCellsExcept_drawsExactlyTenEnemyDeckCards() = withFreshState {
+        GameState.resetForLevel(1)
+        assertEquals(30, GameState.enemyDeckSnapshot().draw)
+        assertEquals(0, GameState.enemyDeckSnapshot().discard)
+        LevelGenerator.fillAllCellsExcept(0 to 0)
+        assertEquals(20, GameState.enemyDeckSnapshot().draw, "Enemy deck should lose exactly 10 cards")
+        assertEquals(0, GameState.enemyDeckSnapshot().discard)
     }
 
     @Test

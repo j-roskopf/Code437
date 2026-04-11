@@ -24,6 +24,8 @@ object ShopScene {
     private val KEY_1 = kbKey("KEY_1")
     private val KEY_2 = kbKey("KEY_2")
     private val KEY_3 = kbKey("KEY_3")
+    private val KEY_4 = kbKey("KEY_4")
+    private val KEY_5 = kbKey("KEY_5")
     private val KEY_B = kbKey("KEY_LO_B")
     private val KEY_ESC = kbKey("KEY_ESC")
 
@@ -38,7 +40,9 @@ object ShopScene {
                 GameState.PlayerDeckCard.BOW_ARROW -> 22
                 GameState.PlayerDeckCard.CAMPFIRE -> 24
                 GameState.PlayerDeckCard.ARMOR -> 28
-                GameState.PlayerDeckCard.KEY -> 18
+                GameState.PlayerDeckCard.KEY_BRONZE -> 18
+                GameState.PlayerDeckCard.KEY_SILVER -> 26
+                GameState.PlayerDeckCard.KEY_GOLD -> 36
                 GameState.PlayerDeckCard.CHEST -> 0
             }
             ShopOffer(idx + 1, card.label, price, card)
@@ -80,9 +84,26 @@ object ShopScene {
                         "  [${o.slot}]  ${o.label}  —  ${o.price} gp$suffix"
                     }
                 }
+                val cost = GameState.KEY_TRADE_UP_COST
+                val tradeBronzeOk = GameState.canTradeBronzeKeysForSilver()
+                val tradeSilverOk = GameState.canTradeSilverKeysForGold()
+                val tradeBronzeLine =
+                    "  [4]  ${cost}x bronze → 1 silver  —  " +
+                        if (tradeBronzeOk) "OK" else "(need $cost bronze)"
+                val tradeSilverLine =
+                    "  [5]  ${cost}x silver → 1 gold  —  " +
+                        if (tradeSilverOk) "OK" else "(need $cost silver)"
+                val (deckKb, deckKs, deckKg) = GameState.playerDeckKeyCardsInPiles()
+                val deckKeyLine =
+                    "  In deck (cards):  bronze $deckKb   silver $deckKs   gold $deckKg"
                 val textBlocks = listOf(
                     "DECK MERCHANT" to CPColor.C_GOLD1(),
                     "GOLD ${GameState.money}   P-DECK ${GameState.playerDeckSnapshot().draw + GameState.playerDeckSnapshot().discard}" to CPColor.C_CYAN1(),
+                    "KEY INVENTORY (carried)" to CPColor.C_STEEL_BLUE1(),
+                    "  Bronze:  ${GameState.keysBronze}" to CPColor.C_STEEL_BLUE1(),
+                    "  Silver:  ${GameState.keysSilver}" to CPColor.C_STEEL_BLUE1(),
+                    "  Gold:    ${GameState.keysGold}" to CPColor.C_STEEL_BLUE1(),
+                    deckKeyLine to CPColor.C_STEEL_BLUE1(),
                 ) + offerLines.map { line ->
                     val col = when {
                         "SOLD" in line -> CPColor.C_GREY50()
@@ -91,8 +112,10 @@ object ShopScene {
                     }
                     line to col
                 } + listOf(
+                    tradeBronzeLine to if (tradeBronzeOk) CPColor.C_GREEN1() else CPColor.C_GREY50(),
+                    tradeSilverLine to if (tradeSilverOk) CPColor.C_GREEN1() else CPColor.C_GREY50(),
                     "" to CPColor.C_GREY50(),
-                    "[1][2][3] buy    B return" to CPColor.C_GREY70(),
+                    "[1][2][3] buy   [4][5] trade keys   B return" to CPColor.C_GREY70(),
                 )
 
                 val lineCount = artH + 1 + textBlocks.size * 2
@@ -124,6 +147,14 @@ object ShopScene {
                     KEY_1 -> 0
                     KEY_2 -> 1
                     KEY_3 -> 2
+                    KEY_4 -> {
+                        GameState.tryTradeBronzeKeysForSilver()
+                        return
+                    }
+                    KEY_5 -> {
+                        GameState.tryTradeSilverKeysForGold()
+                        return
+                    }
                     KEY_B, KEY_ESC -> {
                         when (val dismiss = GameState.shopDismissAction) {
                             ShopDismissAction.AdvanceLevelRecreateGame -> {

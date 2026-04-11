@@ -15,6 +15,7 @@ enum class SceneId(val id: String) {
     RUN_SUMMARY("runsummary"),
     GAME_OVER("gameover"),
     INVENTORY("inventory"),
+    DEBUG_MENU("debugmenu"),
     SHOP("shop"),
     SECRET_ROOM("secretroom"),
     SLOTS("slots"),

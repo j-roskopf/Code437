@@ -22,17 +22,26 @@ object QuestScene {
                 val lines = mutableListOf<Pair<String, CPColor>>()
                 lines += "QUEST BOARD" to CPColor.C_GOLD1()
                 lines += "" to CPColor.C_GREY50()
-                if (q == null) {
-                    lines += "No quest offer available." to CPColor.C_GREY70()
-                    lines += "Press N / B / ESC to return." to CPColor.C_GREY50()
-                } else {
-                    lines += q.title to CPColor.C_STEEL_BLUE1()
-                    lines += q.description to CPColor.C_GREY70()
-                    lines += "Reward: ${q.rewardGold} gp" to CPColor.C_GOLD1()
-                    lines += "" to CPColor.C_GREY50()
-                    lines += "Y accept quest" to CPColor.C_GREEN1()
-                    lines += "N deny quest" to CPColor.C_ORANGE1()
-                    lines += "B / ESC deny and return" to CPColor.C_GREY50()
+                when {
+                    GameState.pendingQuestAtCapacity -> {
+                        lines += "Maximum accepted quests (${GameState.MAX_CONCURRENT_QUESTS}/${GameState.MAX_CONCURRENT_QUESTS})." to CPColor.C_ORANGE1()
+                        lines += "Finish or complete a quest before accepting another." to CPColor.C_GREY70()
+                        lines += "" to CPColor.C_GREY50()
+                        lines += "Press N / B / ESC to return." to CPColor.C_GREY50()
+                    }
+                    q == null -> {
+                        lines += "No quest offer (internal)." to CPColor.C_GREY70()
+                        lines += "Press N / B / ESC to return." to CPColor.C_GREY50()
+                    }
+                    else -> {
+                        lines += q.title to CPColor.C_STEEL_BLUE1()
+                        lines += q.description to CPColor.C_GREY70()
+                        lines += "Reward: ${q.rewardGold} gp" to CPColor.C_GOLD1()
+                        lines += "" to CPColor.C_GREY50()
+                        lines += "Y accept quest" to CPColor.C_GREEN1()
+                        lines += "N deny quest" to CPColor.C_ORANGE1()
+                        lines += "B / ESC deny and return" to CPColor.C_GREY50()
+                    }
                 }
 
                 val cx = canv.width() / 2
@@ -52,7 +61,11 @@ object QuestScene {
                 if (!evt.isDefined) return
                 when (evt.get().key()) {
                     KEY_Y -> {
-                        GameState.pendingQuestOffer?.let { GameState.acceptQuest(it) } ?: GameState.denyPendingQuest()
+                        if (GameState.pendingQuestAtCapacity) {
+                            GameState.denyPendingQuest()
+                        } else {
+                            GameState.pendingQuestOffer?.let { GameState.acceptQuest(it) } ?: GameState.denyPendingQuest()
+                        }
                         ctx.switchScene(SceneId.GAME, false)
                     }
                     KEY_N, KEY_B, KEY_ESC -> {

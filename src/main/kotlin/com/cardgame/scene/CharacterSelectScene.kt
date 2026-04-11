@@ -5,6 +5,8 @@ import com.cardgame.art.AsciiArt
 import com.cardgame.art.CardArt
 import com.cardgame.game.GameState
 import com.cardgame.game.GridConfig
+import com.cardgame.game.GridItem
+import com.cardgame.game.ItemType
 import com.cardgame.game.PlayerCharacter
 import org.cosplay.*
 import scala.Option
@@ -193,11 +195,20 @@ object CharacterSelectScene {
                     val sx = layout.gridStartX + col * (CARD_W + gap)
                     val sy = layout.deckAreaTop + row * layout.rowHeight
                     val type = GameState.deckCardToItemType(card)
-                    val border = CardArt.itemTileColorForType(type)
+                    val kt = card.keyTier()
+                    val previewItem =
+                        if (kt != null) {
+                            GridItem(ItemType.KEY, 0, 0, 0, artVariant = kt.ordinal, tier = kt)
+                        } else {
+                            GridItem(type, 0, 0, 0)
+                        }
+                    val border = CardArt.itemTileColor(previewItem)
                     drawCardBorder(canv, sx, sy, CARD_W, CARD_H, 1, border)
                     val nm = card.label.take(CARD_W - 2)
                     canv.drawString(sx + (CARD_W - nm.length) / 2, sy + 1, 2, nm, border, Option.empty())
-                    val art = CardArt.itemSpriteForType(type)
+                    val art =
+                        if (kt != null) CardArt.itemSpriteForType(ItemType.KEY, kt.ordinal)
+                        else CardArt.itemSpriteForType(type)
                     drawArtInCard(canv, art, sx, sy, border, 2)
                 }
             }

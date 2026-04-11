@@ -270,7 +270,8 @@ object GameScene {
 
     // Confetti bursts
     private val confetti = ConfettiEffect(maxParticles = 35, maxAge = 16)
-    private val hudConfetti = ConfettiEffect(maxParticles = 55, maxAge = 18)
+    /** Quest-complete burst: longer life, above HUD text (z 15). */
+    private val hudConfetti = ConfettiEffect(maxParticles = 72, maxAge = 34, drawZ = 17)
 
     /** Fire-style burst for bomb detonations (center + cross). */
     private val explosionFx = ExplosionEffect()
@@ -282,7 +283,7 @@ object GameScene {
     private const val DECK_FLIP_END_T = 0.40f
     private const val DECK_EXIT_END_T = 0.64f
 
-    private enum class DeckSpawnEdge { BOTTOM, RIGHT }
+    private enum class DeckSpawnEdge { TOP, BOTTOM, LEFT, RIGHT }
     private enum class DeckSource { ENEMY, PLAYER }
 
     private class SlideAnim(
@@ -352,9 +353,23 @@ object GameScene {
         }
         val u = easeDeckMotion(((t - exitEnd) / (1f - exitEnd)).coerceIn(0f, 1f))
         return when (edge) {
+            DeckSpawnEdge.TOP -> {
+                val sx = anim.toX
+                val sy = anim.toY - h
+                val x = sx + ((anim.toX - sx) * u).toInt()
+                val y = sy + ((anim.toY - sy) * u).toInt()
+                x to y
+            }
             DeckSpawnEdge.BOTTOM -> {
                 val sx = anim.toX
                 val sy = anim.toY + h
+                val x = sx + ((anim.toX - sx) * u).toInt()
+                val y = sy + ((anim.toY - sy) * u).toInt()
+                x to y
+            }
+            DeckSpawnEdge.LEFT -> {
+                val sx = anim.toX - w
+                val sy = anim.toY
                 val x = sx + ((anim.toX - sx) * u).toInt()
                 val y = sy + ((anim.toY - sy) * u).toInt()
                 x to y
@@ -475,32 +490,67 @@ object GameScene {
     }
 
     /**
-     * After a **horizontal** move (left/right): repack the vacated **column** — cards below the
-     * empty cell shift up; new tiles spawn as needed. (Grid: x=0 left, y=0 top, y grows downward.)
+     * After a **horizontal** move (left/right): repack the vacated **column** — cards above the
+     * empty cell shift down; new tiles spawn at the top edge.
      */
     private fun slideColumnUpAfterPlayerLeft(col: Int, vacRow: Int) {
         val px = GameState.playerGridX
         val py = GameState.playerGridY
 
-                val freeSlots = (vacRow until GridConfig.ROWS)
-            .filter { row ->
+        val hasMoversBelow =
+            items.any {
+                !it.collected && it.type != ItemType.WALL && it.gridX == col && it.gridY > vacRow
+            } || enemies.any {
+                !it.defeated && it.gridX == col && it.gridY > vacRow
+            }
+        val hasMoversAbove =
+            items.any {
+                !it.collected && it.type != ItemType.WALL && it.gridX == col && it.gridY < vacRow
+            } || enemies.any {
+                !it.defeated && it.gridX == col && it.gridY < vacRow
+            }
+        val pullFromBelow = hasMoversBelow || !hasMoversAbove
+
+        val freeSlots = if (pullFromBelow) {
+            (vacRow until GridConfig.ROWS).filter { row ->
                 !(col == px && row == py) &&
                     items.none { !it.collected && it.type == ItemType.WALL && it.gridX == col && it.gridY == row }
-            }
-            .sorted()
+            }.sorted()
+        } else {
+            (0..vacRow).filter { row ->
+                !(col == px && row == py) &&
+                    items.none { !it.collected && it.type == ItemType.WALL && it.gridX == col && it.gridY == row }
+            }.sortedDescending()
+        }
 
         val movers = mutableListOf<Any>()
         for (item in items) {
-            if (!item.collected && item.type != ItemType.WALL && item.gridX == col && item.gridY > vacRow) movers.add(item)
+            if (!item.collected && item.type != ItemType.WALL && item.gridX == col) {
+                if (pullFromBelow && item.gridY > vacRow) movers.add(item)
+                if (!pullFromBelow && item.gridY < vacRow) movers.add(item)
+            }
         }
         for (enemy in enemies) {
-            if (!enemy.defeated && enemy.gridX == col && enemy.gridY > vacRow) movers.add(enemy)
+            if (!enemy.defeated && enemy.gridX == col) {
+                if (pullFromBelow && enemy.gridY > vacRow) movers.add(enemy)
+                if (!pullFromBelow && enemy.gridY < vacRow) movers.add(enemy)
+            }
         }
-        movers.sortBy {
-            when (it) {
-                is GridItem -> it.gridY
-                is EnemyCard -> it.gridY
-                else -> 0
+        if (pullFromBelow) {
+            movers.sortBy {
+                when (it) {
+                    is GridItem -> it.gridY
+                    is EnemyCard -> it.gridY
+                    else -> 0
+                }
+            }
+        } else {
+            movers.sortByDescending {
+                when (it) {
+                    is GridItem -> it.gridY
+                    is EnemyCard -> it.gridY
+                    else -> 0
+                }
             }
         }
 
@@ -521,6 +571,7 @@ object GameScene {
             val newSy = GridConfig.cellScreenY(row)
             registerSlide(m, oldSx, oldSy, newSx, newSy)
         }
+        val spawnEdge = if (pullFromBelow) DeckSpawnEdge.BOTTOM else DeckSpawnEdge.TOP
         for (i in n until freeSlots.size) {
             val row = freeSlots[i]
             removeEntitiesAt(col, row)
@@ -535,11 +586,11 @@ object GameScene {
                 } else {
                     DeckSource.PLAYER
                 }
-                registerDeckSpawnSlide(newItem, toX, toY, DeckSpawnEdge.BOTTOM, src)
+                registerDeckSpawnSlide(newItem, toX, toY, spawnEdge, src)
             } else {
                 val newEnemy = spawn.second
                 enemies = enemies + newEnemy!!
-                registerDeckSpawnSlide(newEnemy, toX, toY, DeckSpawnEdge.BOTTOM, DeckSource.ENEMY)
+                registerDeckSpawnSlide(newEnemy, toX, toY, spawnEdge, DeckSource.ENEMY)
             }
         }
     }
@@ -552,25 +603,60 @@ object GameScene {
         val px = GameState.playerGridX
         val py = GameState.playerGridY
 
-        val freeSlots = (vacCol until GridConfig.COLS)
-            .filter { col ->
+        val hasMoversRight =
+            items.any {
+                !it.collected && it.type != ItemType.WALL && it.gridY == row && it.gridX > vacCol
+            } || enemies.any {
+                !it.defeated && it.gridY == row && it.gridX > vacCol
+            }
+        val hasMoversLeft =
+            items.any {
+                !it.collected && it.type != ItemType.WALL && it.gridY == row && it.gridX < vacCol
+            } || enemies.any {
+                !it.defeated && it.gridY == row && it.gridX < vacCol
+            }
+        val pullFromRight = hasMoversRight || !hasMoversLeft
+
+        val freeSlots = if (pullFromRight) {
+            (vacCol until GridConfig.COLS).filter { col ->
                 !(col == px && row == py) &&
                     items.none { !it.collected && it.type == ItemType.WALL && it.gridX == col && it.gridY == row }
-            }
-            .sorted()
+            }.sorted()
+        } else {
+            (0..vacCol).filter { col ->
+                !(col == px && row == py) &&
+                    items.none { !it.collected && it.type == ItemType.WALL && it.gridX == col && it.gridY == row }
+            }.sortedDescending()
+        }
 
         val movers = mutableListOf<Any>()
         for (item in items) {
-            if (!item.collected && item.type != ItemType.WALL && item.gridY == row && item.gridX > vacCol) movers.add(item)
+            if (!item.collected && item.type != ItemType.WALL && item.gridY == row) {
+                if (pullFromRight && item.gridX > vacCol) movers.add(item)
+                if (!pullFromRight && item.gridX < vacCol) movers.add(item)
+            }
         }
         for (enemy in enemies) {
-            if (!enemy.defeated && enemy.gridY == row && enemy.gridX > vacCol) movers.add(enemy)
+            if (!enemy.defeated && enemy.gridY == row) {
+                if (pullFromRight && enemy.gridX > vacCol) movers.add(enemy)
+                if (!pullFromRight && enemy.gridX < vacCol) movers.add(enemy)
+            }
         }
-        movers.sortBy {
-            when (it) {
-                is GridItem -> it.gridX
-                is EnemyCard -> it.gridX
-                else -> 0
+        if (pullFromRight) {
+            movers.sortBy {
+                when (it) {
+                    is GridItem -> it.gridX
+                    is EnemyCard -> it.gridX
+                    else -> 0
+                }
+            }
+        } else {
+            movers.sortByDescending {
+                when (it) {
+                    is GridItem -> it.gridX
+                    is EnemyCard -> it.gridX
+                    else -> 0
+                }
             }
         }
 
@@ -591,6 +677,7 @@ object GameScene {
             val newSy = GridConfig.cellScreenY(row)
             registerSlide(m, oldSx, oldSy, newSx, newSy)
         }
+        val spawnEdge = if (pullFromRight) DeckSpawnEdge.RIGHT else DeckSpawnEdge.LEFT
         for (i in n until freeSlots.size) {
             val col = freeSlots[i]
             removeEntitiesAt(col, row)
@@ -605,11 +692,11 @@ object GameScene {
                 } else {
                     DeckSource.PLAYER
                 }
-                registerDeckSpawnSlide(newItem, toX, toY, DeckSpawnEdge.RIGHT, src)
+                registerDeckSpawnSlide(newItem, toX, toY, spawnEdge, src)
             } else {
                 val newEnemy = spawn.second
                 enemies = enemies + newEnemy!!
-                registerDeckSpawnSlide(newEnemy, toX, toY, DeckSpawnEdge.RIGHT, DeckSource.ENEMY)
+                registerDeckSpawnSlide(newEnemy, toX, toY, spawnEdge, DeckSource.ENEMY)
             }
         }
     }
@@ -791,9 +878,44 @@ object GameScene {
         }
     }
 
+    /**
+     * Writes [text] vertically along one column of the card border, centered in the card height.
+     * Each character occupies one row.
+     */
+    private fun drawVerticalText(canv: CPCanvas, x: Int, sy: Int, h: Int, z: Int, text: String, color: CPColor) {
+        val startY = sy + (h - text.length).coerceAtLeast(0) / 2
+        for ((i, ch) in text.withIndex()) {
+            val y = startY + i
+            if (y > sy && y < sy + h - 1) {
+                canv.drawPixel(px(ch, color), x, y, z)
+            }
+        }
+    }
+
     private fun drawDeckFaceDown(canv: CPCanvas, gc: GridConfig) {
-        drawDeckCardBackAt(canv, gc.deckScreenX, gc.enemyDeckScreenY, gc.CELL_WIDTH, gc.CELL_HEIGHT, 0)
-        drawDeckCardBackAt(canv, gc.deckScreenX, gc.playerDeckScreenY, gc.CELL_WIDTH, gc.CELL_HEIGHT, 0)
+        val w = gc.CELL_WIDTH
+        val h = gc.CELL_HEIGHT
+        val labelZ = 1
+
+        val enemySnap = GameState.enemyDeckSnapshot()
+        val ex = gc.deckScreenX
+        val ey = gc.enemyDeckScreenY
+        drawDeckCardBackAt(canv, ex, ey, w, h, 0)
+        val enemyDrawLabel = "DRAW: ${enemySnap.draw}"
+        val enemyDiscLabel = "DISCARD: ${enemySnap.discard}"
+        val enemyLabelColor = CPColor.C_INDIAN_RED1()
+        drawVerticalText(canv, ex, ey, h, labelZ, enemyDrawLabel, enemyLabelColor)
+        drawVerticalText(canv, ex + w - 1, ey, h, labelZ, enemyDiscLabel, enemyLabelColor)
+
+        val playerSnap = GameState.playerDeckSnapshot()
+        val px = gc.deckScreenX
+        val py = gc.playerDeckScreenY
+        drawDeckCardBackAt(canv, px, py, w, h, 0)
+        val playerDrawLabel = "DRAW: ${playerSnap.draw}"
+        val playerDiscLabel = "DISCARD: ${playerSnap.discard}"
+        val playerLabelColor = CPColor.C_GREEN1()
+        drawVerticalText(canv, px, py, h, labelZ, playerDrawLabel, playerLabelColor)
+        drawVerticalText(canv, px + w - 1, py, h, labelZ, playerDiscLabel, playerLabelColor)
     }
 
     private fun maxInteriorClipHalf(w: Int): Int = (w - 2) / 2
@@ -917,7 +1039,7 @@ object GameScene {
             val ny = by + dy
             if (nx !in 0 until GridConfig.COLS || ny !in 0 until GridConfig.ROWS) continue
             if (GameState.playerGridX == nx && GameState.playerGridY == ny) {
-                if (!GameState.debugMode) {
+                if (!GameState.debugInvincible) {
                     GameState.gameOver = true
                     GameState.playerHealth = 0
                     GameState.runEndKind = RunEndKind.DEATH
@@ -991,7 +1113,7 @@ object GameScene {
                 canv.drawPixel(px(ch, color), pxX, sy + 1, 1)
             }
         }
-        if (GameState.debugMode && item.secretRoom) {
+        if (GameState.debugInvincible && item.secretRoom) {
             drawCardBorder(canv, sx, sy, cw, ch, 2, CPColor.C_GOLD1())
             val qx = sx + cw - 3
             if (allowInteriorClipDraw(sx, cw, qx, interiorClipHalfWidth)) {
@@ -1096,7 +1218,7 @@ object GameScene {
                 canv.drawPixel(px(ch, nameColor), pxX, sy + 1, 1)
             }
         }
-        if (GameState.debugMode && enemy.secretRoom) {
+        if (GameState.debugInvincible && enemy.secretRoom) {
             drawCardBorder(canv, sx, sy, cw, ch, 2, CPColor.C_GOLD1())
             val qx = sx + cw - 3
             if (allowInteriorClipDraw(sx, cw, qx, interiorClipHalfWidth)) {
@@ -1182,7 +1304,41 @@ object GameScene {
                     }
                     drawGridEnemyCard(canv, enemy, sx, sy, gc)
                 }
+
+                drawSpawnQueueStrip(canv, gc)
             }
+        }
+    }
+
+    /** One row of text centered under the HUD+grid cluster: upcoming enemy vs player deck spawns. */
+    private fun drawSpawnQueueStrip(canv: CPCanvas, gc: GridConfig) {
+        val q = GameState.peekSpawnQueue()
+        val bg = Option.apply(BG_COLOR)
+        val z = 2
+        val rowY = gc.gridTopY + gc.GRID_TOTAL_HEIGHT + 1
+        val dimEnemy = CPColor(95, 75, 88, "spawn-q-e")
+        val dimPlayer = CPColor(75, 95, 80, "spawn-q-p")
+        val clusterW = gc.CELL_WIDTH + gc.GAP_COLUMNS_HUD_TO_GRID + gc.GRID_TOTAL_WIDTH
+        val segments = mutableListOf<Pair<String, CPColor>>()
+        segments.add("NEXT:  " to CPColor.C_GREY70())
+        q.forEachIndexed { i, src ->
+            val isNext = i == 0
+            val tag =
+                if (src == GameState.SpawnSource.ENEMY) "[Enemy]" else "[Player]"
+            val col = when {
+                src == GameState.SpawnSource.ENEMY && isNext -> CPColor.C_INDIAN_RED1()
+                src == GameState.SpawnSource.PLAYER && isNext -> CPColor.C_GREEN1()
+                src == GameState.SpawnSource.ENEMY -> dimEnemy
+                else -> dimPlayer
+            }
+            segments.add(tag to col)
+            if (i < q.lastIndex) segments.add("  " to CPColor.C_GREY70())
+        }
+        val totalW = segments.sumOf { it.first.length }
+        var x = gc.clusterOriginX + (clusterW - totalW).coerceAtLeast(0) / 2
+        for ((text, col) in segments) {
+            canv.drawString(x, rowY, z, text, col, bg)
+            x += text.length
         }
     }
 
@@ -1204,7 +1360,9 @@ object GameScene {
 
                 when (key) {
                     KEY_Z -> {
-                        GameState.debugMode = !GameState.debugMode
+                        kotlin.runCatching { ctx.deleteScene(SceneId.DEBUG_MENU) }
+                        ctx.addScene(DebugMenuScene.create(), false, false, false)
+                        ctx.switchScene(SceneId.DEBUG_MENU, false)
                         return
                     }
                     KEY_I -> {
@@ -1273,7 +1431,7 @@ object GameScene {
                     it.type == ItemType.SPIKES && !it.collected &&
                         it.gridX == newX && it.gridY == newY
                 }
-                if (spikeHere != null && !GameState.debugMode) {
+                if (spikeHere != null && !GameState.debugInvincible) {
                     GameState.gameOver = true
                     GameState.playerHealth = 0
                     GameState.runEndKind = RunEndKind.DEATH
@@ -1313,11 +1471,17 @@ object GameScene {
                         if (item.type == ItemType.SPIKES || item.type == ItemType.BOMB || item.type == ItemType.WALL) continue
                         if (item.type == ItemType.QUEST) {
                             markItemResolved(item)
-                            GameState.pendingQuestOffer = QuestSystem.randomOffer(
-                                excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
-                                completedQuestIds = GameState.completedQuestIds(),
-                                currentLevel = GameState.currentLevel,
-                            )
+                            if (GameState.canAcceptNewQuest()) {
+                                GameState.pendingQuestOffer = QuestSystem.randomOffer(
+                                    excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
+                                    completedQuestIds = GameState.completedQuestIds(),
+                                    currentLevel = GameState.currentLevel,
+                                )
+                                GameState.pendingQuestAtCapacity = false
+                            } else {
+                                GameState.pendingQuestOffer = null
+                                GameState.pendingQuestAtCapacity = true
+                            }
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
                             val pmQuest = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
@@ -1351,22 +1515,28 @@ object GameScene {
                     }
                 }
 
+                val pendingSecret = GameState.secretRoomPendingCell
+                if (pendingSecret != null &&
+                    pendingSecret.first == newX &&
+                    pendingSecret.second == newY &&
+                    GameState.hasAnyKey()
+                ) {
+                    GameState.consumeAnyKey()
+                    GameState.secretRoomPendingCell = null
+                    itemFlash.flash(newX, newY)
+                    confetti.spawn(newX, newY)
+                    RunStats.recordSecretRoom()
+                    val pmPend = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
+                    if (applyPostMoveSlidingAndBombs(ctx, pmPend, prevX, prevY)) return
+                    kotlin.runCatching { ctx.deleteScene(SceneId.SECRET_ROOM) }
+                    ctx.addScene(SecretRoomScene.create(), false, false, false)
+                    ctx.switchScene(SceneId.SECRET_ROOM, false)
+                    return
+                }
+
                 // Enemy combat
                 for (enemy in enemies) {
                     if (!enemy.defeated && enemy.gridX == newX && enemy.gridY == newY) {
-                        if (enemy.secretRoom) {
-                            if (GameState.hasAnyKey()) GameState.consumeAnyKey()
-                            markEnemyResolved(enemy)
-                            itemFlash.flash(newX, newY)
-                            confetti.spawn(newX, newY)
-                            RunStats.recordSecretRoom()
-                            val pmSecE = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
-                            if (applyPostMoveSlidingAndBombs(ctx, pmSecE, prevX, prevY)) return
-                            kotlin.runCatching { ctx.deleteScene(SceneId.SECRET_ROOM) }
-                            ctx.addScene(SecretRoomScene.create(), false, false, false)
-                            ctx.switchScene(SceneId.SECRET_ROOM, false)
-                            return
-                        }
                         val exchange = resolveCombatExchange(
                             playerHealth = GameState.playerHealth,
                             enemyHealth = enemy.health,
@@ -1374,18 +1544,20 @@ object GameScene {
                             playerAttack = GameState.effectivePlayerAttack(),
                             damageAfterEnemyAttack = { atk -> GameState.damageAfterEnemyAttack(atk) }
                         )
-                        if (!GameState.debugMode) {
+                        if (!GameState.debugInvincible) {
                             GameState.playerHealth -= exchange.playerDamageTaken
                         }
                         enemy.health -= exchange.enemyDamageTaken
                         combatFlash.flash(newX, newY)
 
                         if (exchange.enemyDefeated) {
+                            val hadSecretRoom = enemy.secretRoom
+                            val wasElite = enemy.isElite
                             markEnemyResolved(enemy)
                             GameState.registerEnemyDefeat(enemy.kind, enemy.isElite)
                             RunStats.recordEnemyKill(enemy.kind, enemy.isElite)
-                            GameState.score += if (enemy.isElite) 40 else 25
-                            if (enemy.isElite) {
+                            GameState.addScorePoints(if (enemy.isElite) 40 else 25)
+                            if (wasElite) {
                                 // Keep the player in their original tile so the elite cell holds the dropped key card.
                                 GameState.playerGridX = (newX - dx).coerceIn(0, GridConfig.COLS - 1)
                                 GameState.playerGridY = (newY - dy).coerceIn(0, GridConfig.ROWS - 1)
@@ -1395,9 +1567,32 @@ object GameScene {
                                 }
                             }
                             confetti.spawn(newX, newY)
+                            if (hadSecretRoom) {
+                                if (wasElite) {
+                                    GameState.secretRoomPendingCell = Pair(newX, newY)
+                                } else if (GameState.hasAnyKey()) {
+                                    GameState.consumeAnyKey()
+                                    RunStats.recordSecretRoom()
+                                    val pmSn = planPostMoveFlow(
+                                        prevX,
+                                        prevY,
+                                        GameState.playerGridX,
+                                        GameState.playerGridY,
+                                        dx,
+                                        dy,
+                                    )
+                                    if (applyPostMoveSlidingAndBombs(ctx, pmSn, prevX, prevY)) return
+                                    kotlin.runCatching { ctx.deleteScene(SceneId.SECRET_ROOM) }
+                                    ctx.addScene(SecretRoomScene.create(), false, false, false)
+                                    ctx.switchScene(SceneId.SECRET_ROOM, false)
+                                    return
+                                } else {
+                                    GameState.secretRoomPendingCell = Pair(newX, newY)
+                                }
+                            }
                         }
 
-                        if (exchange.playerDefeated && !GameState.debugMode) {
+                        if (exchange.playerDefeated && !GameState.debugInvincible) {
                             GameState.playerHealth = 0
                             GameState.gameOver = true
                             GameState.runEndKind = RunEndKind.DEATH
@@ -1521,53 +1716,65 @@ object GameScene {
                 val midStart = ly + oneThird
                 val botStart = ly + oneThird * 2
 
-                val enemyDeck = GameState.enemyDeckSnapshot()
-                val playerDeck = GameState.playerDeckSnapshot()
                 val goal = LevelConfig.targetScore(GameState.currentLevel)
-                val questLine = GameState.questHudLines().firstOrNull() ?: "Quest: none"
-                val middleLines = listOf(
-                    hudLineFit("CARD CRAWLER", textMax),
-                    hudLineFit(LevelConfig.hudLore(GameState.currentLevel), textMax),
-                    hudLineFit("LV ${GameState.currentLevel} HP:${GameState.playerHealth}", textMax),
-                    hudLineFit("ATK ${GameState.playerAttackDisplay()}", textMax),
-                    hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax),
-                    hudLineFit("SCORE ${GameState.score}/$goal", textMax),
-                    hudLineFit("GOLD ${GameState.money}", textMax),
-                    hudLineFit("KEYS ${GameState.keysBronze}B ${GameState.keysSilver}S ${GameState.keysGold}G", textMax),
-                    hudLineFit(questLine, textMax),
-                )
+                val debugActive = GameState.debugInvincible || GameState.debugNoScore
+                val debugIdx = if (debugActive) 1 else -1
+                val middleLines = buildList {
+                    add(hudLineFit("CARD CRAWLER", textMax))
+                    if (debugActive) {
+                        val parts = buildList {
+                            if (GameState.debugInvincible) add("invuln")
+                            if (GameState.debugNoScore) add("no score")
+                        }
+                        add(hudLineFit("DEBUG ${parts.joinToString(", ")}", textMax))
+                    }
+                    add(hudLineFit(LevelConfig.hudLore(GameState.currentLevel), textMax))
+                    add(hudLineFit("LV ${GameState.currentLevel} HP:${GameState.playerHealth}", textMax))
+                    add(hudLineFit("ATK ${GameState.playerAttackDisplay()}", textMax))
+                    add(hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax))
+                    add(hudLineFit("SCORE ${GameState.score}/$goal", textMax))
+                    add(hudLineFit("GOLD ${GameState.money}", textMax))
+                    add(hudLineFit("KEYS ${GameState.keysBronze}B ${GameState.keysSilver}S ${GameState.keysGold}G", textMax))
+                    for (qLine in GameState.questHudLines()) {
+                        add(hudLineFit(qLine, textMax))
+                    }
+                    add(hudLineFit("I inventory", textMax))
+                    add(hudLineFit("Z debug menu", textMax))
+                }
 
                 val bg = Option.apply(BG_COLOR)
-                val topLines = listOf(
-                    hudLineFit("ENEMY DECK", textMax),
-                    hudLineFit("D:${enemyDeck.draw} R:${enemyDeck.discard}", textMax),
-                    hudLineFit("TOP ${enemyDeck.top}", textMax),
+                val enemyDeckTitle = hudLineFit("ENEMY DECK", textMax)
+                canv.drawString(
+                    hudXCenteredInCluster(cx, cw, enemyDeckTitle.length),
+                    topStart,
+                    hudZ,
+                    enemyDeckTitle,
+                    CPColor.C_INDIAN_RED1(),
+                    bg,
                 )
-                for ((i, ln) in topLines.withIndex()) {
-                    val col = if (i == 0) CPColor.C_INDIAN_RED1() else CPColor.C_GREY70()
-                    canv.drawString(hudXCenteredInCluster(cx, cw, ln.length), topStart + i, hudZ, ln, col, bg)
-                }
                 val middleVisible = middleLines.take(oneThird)
                 val middleStartY = midStart + ((oneThird - middleVisible.size).coerceAtLeast(0) / 2)
+                val scoreIdx = if (debugActive) 6 else 5
+                val goldIdx = scoreIdx + 1
                 for ((i, ln) in middleVisible.withIndex()) {
-                    val col = when (i) {
-                        0 -> CPColor.C_GOLD1()
-                        1 -> CPColor.C_GREY70()
-                        5, 6 -> CPColor.C_STEEL_BLUE1()
+                    val col = when {
+                        i == 0 -> CPColor.C_GOLD1()
+                        i == debugIdx -> CPColor.C_ORANGE1()
+                        i == scoreIdx || i == goldIdx -> CPColor.C_STEEL_BLUE1()
                         else -> CPColor.C_GREY70()
                     }
                     canv.drawString(hudXCenteredInCluster(cx, cw, ln.length), middleStartY + i, hudZ, ln, col, bg)
                 }
 
-                val botLines = listOf(
-                    hudLineFit("PLAYER DECK", textMax),
-                    hudLineFit("D:${playerDeck.draw} R:${playerDeck.discard}", textMax),
-                    hudLineFit("TOP ${playerDeck.top}", textMax),
+                val playerDeckTitle = hudLineFit("PLAYER DECK", textMax)
+                canv.drawString(
+                    hudXCenteredInCluster(cx, cw, playerDeckTitle.length),
+                    botStart,
+                    hudZ,
+                    playerDeckTitle,
+                    CPColor.C_GREEN1(),
+                    bg,
                 )
-                for ((i, ln) in botLines.withIndex()) {
-                    val col = if (i == 0) CPColor.C_GREEN1() else CPColor.C_GREY70()
-                    canv.drawString(hudXCenteredInCluster(cx, cw, ln.length), botStart + i, hudZ, ln, col, bg)
-                }
             }
         }
     }
@@ -1589,9 +1796,9 @@ object GameScene {
                     val cx = GridConfig.clusterOriginX
                     val cw = GridConfig.HUD_COLUMN_WIDTH
                     val centerX = cx + (cw + 1) / 2
-                    val cy = GridConfig.hudTopY
-                    val third = (GridConfig.hudTextLineCount(GameState.questHudLines().size) / 3).coerceAtLeast(4)
-                    val centerY = cy + third + 5
+                    val centerY = GridConfig.questHudTextScreenRow(
+                        GameState.debugInvincible || GameState.debugNoScore,
+                    )
                     hudConfetti.spawnScreen(centerX, centerY)
                 }
             }
