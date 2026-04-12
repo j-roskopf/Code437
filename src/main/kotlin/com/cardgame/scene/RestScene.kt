@@ -36,7 +36,7 @@ object RestScene {
                 val canv = ctx.canvas
                 val w = canv.width()
                 val h = canv.height()
-                val previewHeal = QuestSystem.restHealAmount(GameState.playerHealth)
+                val previewHeal = QuestSystem.restHealAmount(GameState.playerHealth, GameState.PLAYER_MAX_HEALTH)
 
                 val artW = CampfireArt.width()
                 val artH = CampfireArt.height()
@@ -90,7 +90,7 @@ object RestScene {
                 when (evt.get().key()) {
                     KEY_R -> {
                         if (!rested) {
-                            val base = QuestSystem.restHealAmount(GameState.playerHealth)
+                            val base = QuestSystem.restHealAmount(GameState.playerHealth, GameState.PLAYER_MAX_HEALTH)
                             val bonus = GameState.takePendingRestTileBonusHeal()
                             lastHealApplied = base + bonus
                             if (lastHealApplied > 0) GameState.playerHealth += lastHealApplied

@@ -1410,24 +1410,32 @@ object GameScene {
         } else {
             hudLineFit(keysBase, textMax)
         }
+        val hpMax = GameState.PLAYER_MAX_HEALTH.coerceAtLeast(1)
+        val hpNow = GameState.playerHealth.coerceAtLeast(0)
+        val hpBarWidth = 10
+        val hpFilled = ((hpNow.coerceAtMost(hpMax) * hpBarWidth) / hpMax).coerceIn(0, hpBarWidth)
+        val hpBar = "#".repeat(hpFilled) + "-".repeat(hpBarWidth - hpFilled)
+        val hpLine = hudLineFit("HP $hpNow/$hpMax [$hpBar]", textMax)
         val lines = listOf(
             hudLineFit("INVENTORY", textMax),
-            hudLineFit("LV ${GameState.currentLevel} HP:${GameState.playerHealth}", textMax),
+            hudLineFit("LV ${GameState.currentLevel}  SCORE ${GameState.score}/$goal", textMax),
+            hpLine,
             hudLineFit("ATK ${GameState.playerAttackDisplay()}", textMax),
             hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax),
-            hudLineFit("SCORE ${GameState.score}/$goal", textMax),
             goldLine,
             keysLine,
         )
         val y0 = top + (gc.CELL_HEIGHT - lines.size).coerceAtLeast(0) / 2
         val goldLineIdx = 5
         val keysLineIdx = 6
+        val hpLineIdx = 2
         for ((i, ln) in lines.withIndex()) {
             val col = when {
                 i == 0 -> CPColor.C_STEEL_BLUE1()
+                i == hpLineIdx -> CPColor.C_GREEN1()
                 i == goldLineIdx && moneyFlash != null -> CPColor.C_GOLD1()
                 i == keysLineIdx && chestLockedFlash != null -> CPColor.C_ORANGE1()
-                i == 4 || i == goldLineIdx -> CPColor.C_STEEL_BLUE1()
+                i == 1 || i == goldLineIdx -> CPColor.C_STEEL_BLUE1()
                 else -> CPColor.C_GREY70()
             }
             canv.drawString(spawnPanelLineX(gc, ln.length), y0 + i, z, ln, col, bg)

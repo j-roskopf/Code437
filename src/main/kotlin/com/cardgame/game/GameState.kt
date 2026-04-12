@@ -212,6 +212,8 @@ object GameState {
         return (remaining - totalEquipmentArmor()).coerceAtLeast(0)
     }
 
+    const val PLAYER_MAX_HEALTH = 30
+
     var playerHealth = 20
     var playerAttack = 3
     var score = 0
