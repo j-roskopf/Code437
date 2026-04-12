@@ -172,6 +172,27 @@ object GameState {
     /** From the Z-key debug menu: enemy kills do not increase [score]. */
     var debugNoScore: Boolean = false
 
+    /** How the left-column spawn queue is drawn; cycle from the Z debug menu with [3]. Panel = one grid cell. */
+    enum class SpawnQueueHudStyle {
+        /** NEXT + [Enemy] / [Player] lines, centered in the card panel. */
+        LABELED,
+        /** QUEUE + rule + `>E` / ` P` lines. */
+        COMPACT,
+        /** ORDER + `1E` `2P` … */
+        NUMBERED,
+        /** Title + single line `E · P · …`. */
+        TIMELINE,
+        /** Top/bottom rules with centered list inside. */
+        BOXED,
+    }
+
+    var spawnQueueHudStyle: SpawnQueueHudStyle = SpawnQueueHudStyle.LABELED
+
+    fun cycleSpawnQueueHudStyle() {
+        val e = SpawnQueueHudStyle.entries
+        spawnQueueHudStyle = e[(spawnQueueHudStyle.ordinal + 1) % e.size]
+    }
+
     fun addScorePoints(delta: Int) {
         if (delta <= 0 || debugNoScore) return
         score += delta
@@ -1059,24 +1080,35 @@ object GridConfig {
     private const val QUEST_HUD_LINES_WORST_CASE = GameState.MAX_CONCURRENT_QUESTS
 
     /**
-     * Minimum CosPlay emuterm canvas: one card-width HUD column + gap + grid, centered.
+     * Spawn queue panel width: same as one grid cell / card ([CELL_WIDTH]).
+     * Sits immediately left of the HUD column ([GAP_COLUMNS_SPAWN_QUEUE_TO_HUD] gap).
      */
-    val MIN_EMUTERM_COLS: Int get() = CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID + GRID_TOTAL_WIDTH + 4
+    val SPAWN_QUEUE_PANEL_WIDTH: Int get() = CELL_WIDTH
+    /** Gap between spawn queue panel and HUD/deck column. */
+    const val GAP_COLUMNS_SPAWN_QUEUE_TO_HUD = 1
+
+    /**
+     * Screen rows between stacked left-column cards (controls / spawn queue / inventory).
+     * Three full [CELL_HEIGHT] cards + two gaps must fit in [GRID_TOTAL_HEIGHT] (default gap 0).
+     */
+    const val GAP_LINES_CONTROLS_TO_SPAWN_QUEUE = 0
+
+    /**
+     * Minimum CosPlay emuterm canvas: spawn panel + HUD column + gap + grid, centered.
+     */
+    val MIN_EMUTERM_COLS: Int
+        get() = SPAWN_QUEUE_PANEL_WIDTH + GAP_COLUMNS_SPAWN_QUEUE_TO_HUD + CELL_WIDTH +
+            GAP_COLUMNS_HUD_TO_GRID + GRID_TOTAL_WIDTH + 4
 
     val MIN_EMUTERM_ROWS: Int
         get() = clusterPixelHeight(hudTextLineCount(QUEST_HUD_LINES_WORST_CASE))
 
-    /** HUD text lines (approx.): meta + quest block + footer; [GameScene] also draws I/Z controller hints. */
+    /** HUD text lines (approx.): meta + quest block + footer (I/Z live on the controls card). */
     fun hudTextLineCount(questHudLineCount: Int): Int =
-        5 + questHudLineCount.coerceAtLeast(1) + 4
+        5 + questHudLineCount.coerceAtLeast(1) + 2
 
-    /** Extra canvas rows below the grid for the spawn queue strip ([GameScene] draws there). */
-    const val SPAWN_QUEUE_BELOW_GRID_ROWS = 2
-
-    /** Vertical size of the game cluster. Left HUD/deck column is fixed to thirds of board height. */
-    fun clusterPixelHeight(questHudLineCount: Int): Int {
-        return GRID_TOTAL_HEIGHT + SPAWN_QUEUE_BELOW_GRID_ROWS
-    }
+    /** Vertical size of the game cluster (spawn queue is left of the HUD column, not below the grid). */
+    fun clusterPixelHeight(questHudLineCount: Int): Int = GRID_TOTAL_HEIGHT
 
     /** Width of HUD + deck column (one playing-card width). */
     val HUD_COLUMN_WIDTH: Int get() = CELL_WIDTH
@@ -1087,8 +1119,14 @@ object GridConfig {
     var offsetY = 2
         private set
 
-    /** Top-left of the left column (HUD text + deck); width [HUD_COLUMN_WIDTH]. */
+    /**
+     * Left edge of the spawn-queue panel (one card wide). HUD/deck starts at
+     * [hudColumnLeftX] = [clusterOriginX] + [SPAWN_QUEUE_PANEL_WIDTH] + [GAP_COLUMNS_SPAWN_QUEUE_TO_HUD].
+     */
     var clusterOriginX = 4
+        private set
+    /** Left edge of the HUD + deck column (one card width). */
+    var hudColumnLeftX = 4
         private set
     /** Top row of the centered game cluster bounding box (max of left stack vs grid height). */
     var clusterOriginY = 2
@@ -1118,45 +1156,71 @@ object GridConfig {
         private set
 
     /**
-     * HUD + deck in a [CELL_WIDTH] column on the left; grid on the right. The cluster is centered
-     * horizontally and vertically on the canvas; the shorter column is vertically centered against the taller one.
+     * Spawn queue strip, then HUD + deck in a [CELL_WIDTH] column, gap, then grid. The cluster is centered
+     * horizontally and vertically on the canvas.
      */
     fun updateClusterLayout(canvasWidth: Int, canvasHeight: Int, questHudLineCount: Int) {
         lastCanvasWidth = canvasWidth
         lastCanvasHeight = canvasHeight
         val gridH = GRID_TOTAL_HEIGHT
-        val clusterW = CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID + GRID_TOTAL_WIDTH
+        val clusterW =
+            SPAWN_QUEUE_PANEL_WIDTH + GAP_COLUMNS_SPAWN_QUEUE_TO_HUD + CELL_WIDTH +
+                GAP_COLUMNS_HUD_TO_GRID + GRID_TOTAL_WIDTH
         val clusterH = clusterPixelHeight(questHudLineCount)
         clusterOriginX = ((canvasWidth - clusterW).coerceAtLeast(0) + 1) / 2
         clusterOriginY = ((canvasHeight - clusterH).coerceAtLeast(0) + 1) / 2
+        hudColumnLeftX = clusterOriginX + SPAWN_QUEUE_PANEL_WIDTH + GAP_COLUMNS_SPAWN_QUEUE_TO_HUD
         hudTopY = clusterOriginY
         gridTopY = clusterOriginY
         val oneThird = (gridH / 3).coerceAtLeast(CELL_HEIGHT)
-        deckScreenX = clusterOriginX
+        deckScreenX = hudColumnLeftX
         enemyDeckScreenY = hudTopY
         playerDeckScreenY = hudTopY + oneThird * 2
         deckScreenY = playerDeckScreenY
-        offsetX = clusterOriginX + CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID
+        offsetX = hudColumnLeftX + CELL_WIDTH + GAP_COLUMNS_HUD_TO_GRID
         offsetY = gridTopY
     }
 
     fun cellScreenX(gridX: Int) = offsetX + gridX * CELL_WIDTH
     fun cellScreenY(gridY: Int) = offsetY + gridY * CELL_HEIGHT
 
+    private fun leftColumnStackHeight(): Int {
+        val gap = GAP_LINES_CONTROLS_TO_SPAWN_QUEUE
+        return 3 * CELL_HEIGHT + 2 * gap
+    }
+
     /**
-     * First character row of the quest block in the middle HUD (CARD … KEYS, then N quest lines, then I/Z).
+     * Top screen row of the controls card (left column, above the spawn queue).
+     * Stack: controls, spawn queue, inventory ([leftColumnStackHeight]).
+     */
+    fun controlsPanelTopY(): Int {
+        val stackH = leftColumnStackHeight()
+        return gridTopY + (GRID_TOTAL_HEIGHT - stackH).coerceAtLeast(0) / 2
+    }
+
+    /** Top row of the spawn queue panel (below [controlsPanelTopY]). */
+    fun spawnQueuePanelTopY(): Int =
+        controlsPanelTopY() + CELL_HEIGHT + GAP_LINES_CONTROLS_TO_SPAWN_QUEUE
+
+    /** Top row of the inventory / resources card (below the spawn queue). */
+    fun inventoryPanelTopY(): Int =
+        spawnQueuePanelTopY() + CELL_HEIGHT + GAP_LINES_CONTROLS_TO_SPAWN_QUEUE
+
+    /**
+     * First character row of the quest block in the middle HUD (CARD … lore, then N quest lines).
      * Matches [com.cardgame.scene.GameScene] `createHudSprite`.
      */
     fun questHudTextScreenRow(debugHud: Boolean): Int {
         val ly = hudTopY
         val oneThird = (GRID_TOTAL_HEIGHT / 3).coerceAtLeast(4)
-        val midStart = ly + oneThird
+        val midInteriorTop = ly + oneThird + 1
+        val midInteriorH = (oneThird - 2).coerceAtLeast(1)
         val dbg = if (debugHud) 1 else 0
-        val linesBeforeQuestBlock = 8 + dbg
+        val linesBeforeQuestBlock = 2 + dbg
         val questCount = GameState.questHudLines().size.coerceAtLeast(1)
-        val middleLineCount = linesBeforeQuestBlock + questCount + 2
-        val visibleCount = minOf(middleLineCount, oneThird)
-        val middleStartY = midStart + (oneThird - visibleCount).coerceAtLeast(0) / 2
+        val middleLineCount = linesBeforeQuestBlock + questCount
+        val visibleCount = minOf(middleLineCount, midInteriorH)
+        val middleStartY = midInteriorTop + (midInteriorH - visibleCount).coerceAtLeast(0) / 2
         return middleStartY + linesBeforeQuestBlock
     }
 }

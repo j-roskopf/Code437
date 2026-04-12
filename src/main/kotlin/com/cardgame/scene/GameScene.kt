@@ -19,9 +19,7 @@ object GameScene {
     internal data class HudLayout(
         val totalLineCount: Int,
         val questBlockStartLine: Int,
-        val inventoryLineIndex: Int,
         val keysLineIndex: Int,
-        val controlsLineIndex: Int,
         val hpBarLineIndex: Int,
     )
 
@@ -106,14 +104,12 @@ object GameScene {
     ): HudLayout {
         val qc = questLineCount.coerceAtLeast(1)
         val meta = 5
-        val footer = 4
+        val footer = 2
         return HudLayout(
             totalLineCount = meta + qc + footer,
             questBlockStartLine = meta,
-            inventoryLineIndex = meta + qc,
-            keysLineIndex = meta + qc + 1,
-            controlsLineIndex = meta + qc + 2,
-            hpBarLineIndex = meta + qc + 3,
+            keysLineIndex = meta + qc,
+            hpBarLineIndex = meta + qc + 1,
         )
     }
 
@@ -1305,40 +1301,215 @@ object GameScene {
                     drawGridEnemyCard(canv, enemy, sx, sy, gc)
                 }
 
+                drawControlsCard(canv, gc)
                 drawSpawnQueueStrip(canv, gc)
+                drawInventoryCard(canv, gc)
             }
         }
     }
 
-    /** One row of text centered under the HUD+grid cluster: upcoming enemy vs player deck spawns. */
+    /**
+     * LV/ATK/SHD/SCORE/GOLD/KEYS moved from the main HUD; same frame as [drawSpawnQueueStrip].
+     */
+    private fun drawInventoryCard(canv: CPCanvas, gc: GridConfig) {
+        val top = gc.inventoryPanelTopY()
+        val frameCol = CPColor(88, 88, 108, "spawn-card-frame")
+        drawCardBorder(canv, gc.clusterOriginX, top, gc.CELL_WIDTH, gc.CELL_HEIGHT, 1, frameCol)
+        val bg = Option.apply(BG_COLOR)
+        val z = 2
+        val textMax = gc.CELL_WIDTH.coerceAtLeast(8)
+        val goal = LevelConfig.targetScore(GameState.currentLevel)
+        val lines = listOf(
+            hudLineFit("INVENTORY", textMax),
+            hudLineFit("LV ${GameState.currentLevel} HP:${GameState.playerHealth}", textMax),
+            hudLineFit("ATK ${GameState.playerAttackDisplay()}", textMax),
+            hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax),
+            hudLineFit("SCORE ${GameState.score}/$goal", textMax),
+            hudLineFit("GOLD ${GameState.money}", textMax),
+            hudLineFit("KEYS ${GameState.keysBronze}B ${GameState.keysSilver}S ${GameState.keysGold}G", textMax),
+        )
+        val y0 = top + (gc.CELL_HEIGHT - lines.size).coerceAtLeast(0) / 2
+        for ((i, ln) in lines.withIndex()) {
+            val col = when (i) {
+                0 -> CPColor.C_STEEL_BLUE1()
+                4, 5 -> CPColor.C_STEEL_BLUE1()
+                else -> CPColor.C_GREY70()
+            }
+            canv.drawString(spawnPanelLineX(gc, ln.length), y0 + i, z, ln, col, bg)
+        }
+    }
+
+    /**
+     * Key hints (I/Z) in a card above the spawn queue; same frame as [drawSpawnQueueStrip].
+     */
+    private fun drawControlsCard(canv: CPCanvas, gc: GridConfig) {
+        val top = gc.controlsPanelTopY()
+        val frameCol = CPColor(88, 88, 108, "spawn-card-frame")
+        drawCardBorder(canv, gc.clusterOriginX, top, gc.CELL_WIDTH, gc.CELL_HEIGHT, 1, frameCol)
+        val bg = Option.apply(BG_COLOR)
+        val z = 2
+        val title = "CONTROLS"
+        val lineInv = "I inventory"
+        val lineDbg = "Z debug menu"
+        val lines = listOf(title, lineInv, lineDbg)
+        val y0 = top + (gc.CELL_HEIGHT - lines.size).coerceAtLeast(0) / 2
+        canv.drawString(spawnPanelLineX(gc, title.length), y0, z, title, CPColor.C_STEEL_BLUE1(), bg)
+        canv.drawString(spawnPanelLineX(gc, lineInv.length), y0 + 1, z, lineInv, CPColor.C_GREY70(), bg)
+        canv.drawString(spawnPanelLineX(gc, lineDbg.length), y0 + 2, z, lineDbg, CPColor.C_GREY70(), bg)
+    }
+
+    /**
+     * Spawn queue in a panel one grid cell wide ([GridConfig.CELL_WIDTH]) and tall ([CELL_HEIGHT]),
+     * between the controls and inventory cards; style from [GameState.spawnQueueHudStyle] (debug menu [3]).
+     */
     private fun drawSpawnQueueStrip(canv: CPCanvas, gc: GridConfig) {
+        val bandTop = gc.spawnQueuePanelTopY()
+        val frameCol = CPColor(88, 88, 108, "spawn-card-frame")
+        drawCardBorder(canv, gc.clusterOriginX, bandTop, gc.CELL_WIDTH, gc.CELL_HEIGHT, 1, frameCol)
+        when (GameState.spawnQueueHudStyle) {
+            GameState.SpawnQueueHudStyle.LABELED -> drawSpawnQueueLabeled(canv, gc)
+            GameState.SpawnQueueHudStyle.COMPACT -> drawSpawnQueueCompact(canv, gc)
+            GameState.SpawnQueueHudStyle.NUMBERED -> drawSpawnQueueNumbered(canv, gc)
+            GameState.SpawnQueueHudStyle.TIMELINE -> drawSpawnQueueTimeline(canv, gc)
+            GameState.SpawnQueueHudStyle.BOXED -> drawSpawnQueueBoxed(canv, gc)
+        }
+    }
+
+    /** One card column wide, centered text; [totalLines] rows placed inside [CELL_HEIGHT] band aligned with grid. */
+    private fun spawnPanelLineX(gc: GridConfig, textLen: Int): Int =
+        hudXCenteredInCluster(gc.clusterOriginX, gc.CELL_WIDTH, textLen)
+
+    private fun spawnPanelContentTopY(gc: GridConfig, totalLines: Int): Int {
+        val bandTop = gc.spawnQueuePanelTopY()
+        return bandTop + (gc.CELL_HEIGHT - totalLines).coerceAtLeast(0) / 2
+    }
+
+    private fun drawSpawnQueueLabeled(canv: CPCanvas, gc: GridConfig) {
         val q = GameState.peekSpawnQueue()
         val bg = Option.apply(BG_COLOR)
         val z = 2
-        val rowY = gc.gridTopY + gc.GRID_TOTAL_HEIGHT + 1
         val dimEnemy = CPColor(95, 75, 88, "spawn-q-e")
         val dimPlayer = CPColor(75, 95, 80, "spawn-q-p")
-        val clusterW = gc.CELL_WIDTH + gc.GAP_COLUMNS_HUD_TO_GRID + gc.GRID_TOTAL_WIDTH
-        val segments = mutableListOf<Pair<String, CPColor>>()
-        segments.add("NEXT:  " to CPColor.C_GREY70())
+        val totalLines = 1 + q.size
+        val y0 = spawnPanelContentTopY(gc, totalLines)
+        val head = "NEXT"
+        canv.drawString(spawnPanelLineX(gc, head.length), y0, z, head, CPColor.C_GREY70(), bg)
         q.forEachIndexed { i, src ->
             val isNext = i == 0
-            val tag =
-                if (src == GameState.SpawnSource.ENEMY) "[Enemy]" else "[Player]"
+            val tag = if (src == GameState.SpawnSource.ENEMY) "[Enemy]" else "[Player]"
             val col = when {
                 src == GameState.SpawnSource.ENEMY && isNext -> CPColor.C_INDIAN_RED1()
                 src == GameState.SpawnSource.PLAYER && isNext -> CPColor.C_GREEN1()
                 src == GameState.SpawnSource.ENEMY -> dimEnemy
                 else -> dimPlayer
             }
-            segments.add(tag to col)
-            if (i < q.lastIndex) segments.add("  " to CPColor.C_GREY70())
+            canv.drawString(spawnPanelLineX(gc, tag.length), y0 + 1 + i, z, tag, col, bg)
         }
-        val totalW = segments.sumOf { it.first.length }
-        var x = gc.clusterOriginX + (clusterW - totalW).coerceAtLeast(0) / 2
-        for ((text, col) in segments) {
-            canv.drawString(x, rowY, z, text, col, bg)
-            x += text.length
+    }
+
+    private fun drawSpawnQueueCompact(canv: CPCanvas, gc: GridConfig) {
+        val q = GameState.peekSpawnQueue()
+        val bg = Option.apply(BG_COLOR)
+        val z = 2
+        val dimEnemy = CPColor(95, 75, 88, "spawn-q-e")
+        val dimPlayer = CPColor(75, 95, 80, "spawn-q-p")
+        val sep = CPColor(60, 60, 75, "spawn-q-sep")
+        val totalLines = 2 + q.size
+        val y0 = spawnPanelContentTopY(gc, totalLines)
+        val title = "QUEUE"
+        canv.drawString(spawnPanelLineX(gc, title.length), y0, z, title, CPColor.C_GREY70(), bg)
+        val rule = "-".repeat((gc.CELL_WIDTH - 2).coerceIn(8, 32))
+        canv.drawString(spawnPanelLineX(gc, rule.length), y0 + 1, z, rule, sep, bg)
+        q.forEachIndexed { i, src ->
+            val isNext = i == 0
+            val letter = if (src == GameState.SpawnSource.ENEMY) "E" else "P"
+            val line = if (isNext) ">$letter" else " $letter"
+            val col = when {
+                src == GameState.SpawnSource.ENEMY && isNext -> CPColor.C_INDIAN_RED1()
+                src == GameState.SpawnSource.PLAYER && isNext -> CPColor.C_GREEN1()
+                src == GameState.SpawnSource.ENEMY -> dimEnemy
+                else -> dimPlayer
+            }
+            canv.drawString(spawnPanelLineX(gc, line.length), y0 + 2 + i, z, line, col, bg)
+        }
+    }
+
+    private fun drawSpawnQueueNumbered(canv: CPCanvas, gc: GridConfig) {
+        val q = GameState.peekSpawnQueue()
+        val bg = Option.apply(BG_COLOR)
+        val z = 2
+        val dimEnemy = CPColor(95, 75, 88, "spawn-q-e")
+        val dimPlayer = CPColor(75, 95, 80, "spawn-q-p")
+        val totalLines = 1 + q.size
+        val y0 = spawnPanelContentTopY(gc, totalLines)
+        val head = "ORDER"
+        canv.drawString(spawnPanelLineX(gc, head.length), y0, z, head, CPColor.C_GREY70(), bg)
+        q.forEachIndexed { i, src ->
+            val slot = i + 1
+            val letter = if (src == GameState.SpawnSource.ENEMY) "E" else "P"
+            val line = "$slot$letter"
+            val isNext = i == 0
+            val col = when {
+                src == GameState.SpawnSource.ENEMY && isNext -> CPColor.C_INDIAN_RED1()
+                src == GameState.SpawnSource.PLAYER && isNext -> CPColor.C_GREEN1()
+                src == GameState.SpawnSource.ENEMY -> dimEnemy
+                else -> dimPlayer
+            }
+            canv.drawString(spawnPanelLineX(gc, line.length), y0 + 1 + i, z, line, col, bg)
+        }
+    }
+
+    private fun drawSpawnQueueTimeline(canv: CPCanvas, gc: GridConfig) {
+        val q = GameState.peekSpawnQueue()
+        val bg = Option.apply(BG_COLOR)
+        val z = 2
+        val dimEnemy = CPColor(95, 75, 88, "spawn-q-e")
+        val dimPlayer = CPColor(75, 95, 80, "spawn-q-p")
+        val totalLines = 2
+        val y0 = spawnPanelContentTopY(gc, totalLines)
+        val title = "SPAWN ORDER"
+        canv.drawString(spawnPanelLineX(gc, title.length), y0, z, title, CPColor.C_GREY70(), bg)
+        val rowY = y0 + 1
+        val chainW = q.size + maxOf(0, q.size - 1) * 3
+        var x = spawnPanelLineX(gc, chainW)
+        for ((i, src) in q.withIndex()) {
+            if (i > 0) {
+                canv.drawString(x, rowY, z, " · ", CPColor.C_GREY70(), bg)
+                x += 3
+            }
+            val letter = if (src == GameState.SpawnSource.ENEMY) "E" else "P"
+            val isNext = i == 0
+            val col = when {
+                src == GameState.SpawnSource.ENEMY && isNext -> CPColor.C_INDIAN_RED1()
+                src == GameState.SpawnSource.PLAYER && isNext -> CPColor.C_GREEN1()
+                src == GameState.SpawnSource.ENEMY -> dimEnemy
+                else -> dimPlayer
+            }
+            canv.drawString(x, rowY, z, letter, col, bg)
+            x += 1
+        }
+    }
+
+    private fun drawSpawnQueueBoxed(canv: CPCanvas, gc: GridConfig) {
+        val q = GameState.peekSpawnQueue()
+        val bg = Option.apply(BG_COLOR)
+        val z = 2
+        val dimEnemy = CPColor(95, 75, 88, "spawn-q-e")
+        val dimPlayer = CPColor(75, 95, 80, "spawn-q-p")
+        val totalLines = 1 + q.size
+        val y0 = spawnPanelContentTopY(gc, totalLines)
+        val head = "NEXT"
+        canv.drawString(spawnPanelLineX(gc, head.length), y0, z, head, CPColor.C_STEEL_BLUE1(), bg)
+        q.forEachIndexed { i, src ->
+            val isNext = i == 0
+            val tag = if (src == GameState.SpawnSource.ENEMY) "[Enemy]" else "[Player]"
+            val col = when {
+                src == GameState.SpawnSource.ENEMY && isNext -> CPColor.C_INDIAN_RED1()
+                src == GameState.SpawnSource.PLAYER && isNext -> CPColor.C_GREEN1()
+                src == GameState.SpawnSource.ENEMY -> dimEnemy
+                else -> dimPlayer
+            }
+            canv.drawString(spawnPanelLineX(gc, tag.length), y0 + 1 + i, z, tag, col, bg)
         }
     }
 
@@ -1705,18 +1876,26 @@ object GameScene {
             override fun render(ctx: CPSceneObjectContext) {
                 val canv = ctx.canvas
                 syncClusterLayout(canv)
-                val cx = GridConfig.clusterOriginX
+                val cx = GridConfig.hudColumnLeftX
                 val cw = GridConfig.HUD_COLUMN_WIDTH
                 val textMax = cw.coerceAtLeast(8)
                 val hudZ = 15 // above grid/player (≤4) and confetti (10)
 
                 val ly = GridConfig.hudTopY
                 val oneThird = (GridConfig.GRID_TOTAL_HEIGHT / 3).coerceAtLeast(4)
-                val topStart = ly
-                val midStart = ly + oneThird
-                val botStart = ly + oneThird * 2
+                // Three stacked frames like the left column (enemy / lore+quests / player), not one tall box.
+                // Place titles one row inside each band so z=15 text does not erase the z=14 rules.
+                val topStart = ly + 1
+                val midInteriorTop = ly + oneThird + 1
+                val midInteriorH = (oneThird - 2).coerceAtLeast(1)
+                val botStart = ly + oneThird * 2 + 1
 
-                val goal = LevelConfig.targetScore(GameState.currentLevel)
+                val hudFrameCol = CPColor(88, 88, 108, "hud-card-frame")
+                for (seg in 0..2) {
+                    val sy = ly + seg * oneThird
+                    drawCardBorder(canv, cx, sy, cw, oneThird, 14, hudFrameCol)
+                }
+
                 val debugActive = GameState.debugInvincible || GameState.debugNoScore
                 val debugIdx = if (debugActive) 1 else -1
                 val middleLines = buildList {
@@ -1729,17 +1908,9 @@ object GameScene {
                         add(hudLineFit("DEBUG ${parts.joinToString(", ")}", textMax))
                     }
                     add(hudLineFit(LevelConfig.hudLore(GameState.currentLevel), textMax))
-                    add(hudLineFit("LV ${GameState.currentLevel} HP:${GameState.playerHealth}", textMax))
-                    add(hudLineFit("ATK ${GameState.playerAttackDisplay()}", textMax))
-                    add(hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax))
-                    add(hudLineFit("SCORE ${GameState.score}/$goal", textMax))
-                    add(hudLineFit("GOLD ${GameState.money}", textMax))
-                    add(hudLineFit("KEYS ${GameState.keysBronze}B ${GameState.keysSilver}S ${GameState.keysGold}G", textMax))
                     for (qLine in GameState.questHudLines()) {
                         add(hudLineFit(qLine, textMax))
                     }
-                    add(hudLineFit("I inventory", textMax))
-                    add(hudLineFit("Z debug menu", textMax))
                 }
 
                 val bg = Option.apply(BG_COLOR)
@@ -1752,15 +1923,13 @@ object GameScene {
                     CPColor.C_INDIAN_RED1(),
                     bg,
                 )
-                val middleVisible = middleLines.take(oneThird)
-                val middleStartY = midStart + ((oneThird - middleVisible.size).coerceAtLeast(0) / 2)
-                val scoreIdx = if (debugActive) 6 else 5
-                val goldIdx = scoreIdx + 1
+                val middleVisible = middleLines.take(midInteriorH)
+                val middleStartY =
+                    midInteriorTop + (midInteriorH - middleVisible.size).coerceAtLeast(0) / 2
                 for ((i, ln) in middleVisible.withIndex()) {
                     val col = when {
                         i == 0 -> CPColor.C_GOLD1()
                         i == debugIdx -> CPColor.C_ORANGE1()
-                        i == scoreIdx || i == goldIdx -> CPColor.C_STEEL_BLUE1()
                         else -> CPColor.C_GREY70()
                     }
                     canv.drawString(hudXCenteredInCluster(cx, cw, ln.length), middleStartY + i, hudZ, ln, col, bg)
@@ -1793,7 +1962,7 @@ object GameScene {
                 if (GameState.consumeHudQuestCelebrate()) {
                     val canv = ctx.canvas
                     syncClusterLayout(canv)
-                    val cx = GridConfig.clusterOriginX
+                    val cx = GridConfig.hudColumnLeftX
                     val cw = GridConfig.HUD_COLUMN_WIDTH
                     val centerX = cx + (cw + 1) / 2
                     val centerY = GridConfig.questHudTextScreenRow(

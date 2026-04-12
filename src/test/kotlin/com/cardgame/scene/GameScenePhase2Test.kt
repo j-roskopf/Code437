@@ -12,25 +12,23 @@ class GameScenePhase2Test {
     @Test
     fun computeHudLayout_positionsRowsConsistently() {
         val layout = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 1)
-        assertEquals(10, layout.totalLineCount)
+        assertEquals(8, layout.totalLineCount)
         assertEquals(5, layout.questBlockStartLine)
-        assertEquals(6, layout.inventoryLineIndex)
-        assertEquals(7, layout.keysLineIndex)
-        assertEquals(8, layout.controlsLineIndex)
-        assertEquals(9, layout.hpBarLineIndex)
+        assertEquals(6, layout.keysLineIndex)
+        assertEquals(7, layout.hpBarLineIndex)
     }
 
     @Test
     fun computeHudLayout_expandsForMultipleQuestLines() {
         val single = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 1)
         val multi = GameScene.computeHudLayout(canvasHeight = 58, questLineCount = 4)
-        assertEquals(10, single.totalLineCount)
-        assertEquals(13, multi.totalLineCount)
+        assertEquals(8, single.totalLineCount)
+        assertEquals(11, multi.totalLineCount)
         assertEquals(5, single.questBlockStartLine)
         assertEquals(5, multi.questBlockStartLine)
-        assertEquals(multi.questBlockStartLine + 4, multi.inventoryLineIndex)
-        assertEquals(6, single.inventoryLineIndex)
-        assertEquals(9, multi.inventoryLineIndex)
+        assertEquals(multi.questBlockStartLine + 4, multi.keysLineIndex)
+        assertEquals(6, single.keysLineIndex)
+        assertEquals(9, multi.keysLineIndex)
     }
 
     @Test

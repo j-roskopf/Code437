@@ -14,6 +14,7 @@ object DebugMenuScene {
 
     private val KEY_1 = kbKey("KEY_1")
     private val KEY_2 = kbKey("KEY_2")
+    private val KEY_3 = kbKey("KEY_3")
     private val KEY_B = kbKey("KEY_LO_B")
     private val KEY_ESC = kbKey("KEY_ESC")
 
@@ -26,8 +27,9 @@ object DebugMenuScene {
                 lines += "" to CPColor.C_GREY50()
                 lines += onOffLine(1, "Invincible (no damage)", GameState.debugInvincible) to CPColor.C_STEEL_BLUE1()
                 lines += onOffLine(2, "No score from kills", GameState.debugNoScore) to CPColor.C_STEEL_BLUE1()
+                lines += spawnQueueStyleLine() to CPColor.C_STEEL_BLUE1()
                 lines += "" to CPColor.C_GREY50()
-                lines += "[1][2] toggle   B / ESC resume" to CPColor.C_GREY70()
+                lines += "[1][2] toggle  [3] spawn queue style   B / ESC resume" to CPColor.C_GREY70()
 
                 val cx = canv.width() / 2
                 val cy = canv.height() / 2 - lines.size
@@ -47,6 +49,7 @@ object DebugMenuScene {
                 when (evt.get().key()) {
                     KEY_1 -> GameState.debugInvincible = !GameState.debugInvincible
                     KEY_2 -> GameState.debugNoScore = !GameState.debugNoScore
+                    KEY_3 -> GameState.cycleSpawnQueueHudStyle()
                     KEY_B, KEY_ESC -> ctx.switchScene(SceneId.GAME, false)
                     else -> {}
                 }
@@ -63,4 +66,15 @@ object DebugMenuScene {
 
     private fun onOffLine(slot: Int, label: String, on: Boolean): String =
         "[$slot] $label  ${if (on) "[ON]" else "[off]"}"
+
+    private fun spawnQueueStyleLine(): String {
+        val name = when (GameState.spawnQueueHudStyle) {
+            GameState.SpawnQueueHudStyle.LABELED -> "card: NEXT + [Enemy]/[Player]"
+            GameState.SpawnQueueHudStyle.COMPACT -> "card: QUEUE + >E"
+            GameState.SpawnQueueHudStyle.NUMBERED -> "card: ORDER + 1E…"
+            GameState.SpawnQueueHudStyle.TIMELINE -> "card: E · P · …"
+            GameState.SpawnQueueHudStyle.BOXED -> "card: rules + list"
+        }
+        return "[3] Spawn queue HUD: $name"
+    }
 }
