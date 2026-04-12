@@ -52,9 +52,8 @@ object LevelSelectScene {
                 row += 2
                 for (lv in 1..LevelConfig.COUNT) {
                     val unlocked = Progress.isUnlocked(lv)
-                    val target = LevelConfig.targetScore(lv)
                     val lock = if (unlocked) "" else "  (locked)"
-                    val line = "  $lv  Goal: $target pts$lock"
+                    val line = "  $lv  Clear: defeat all enemies$lock"
                     val color = if (unlocked) CPColor.C_STEEL_BLUE1() else CPColor.C_GREY50()
                     canv.drawString(centerX - line.length / 2, row, 1, line, color, Option.empty())
                     row += 2
@@ -68,6 +67,8 @@ object LevelSelectScene {
         val inputSprite = object : CPCanvasSprite("levelselect-input", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                // Inactive scenes may still get update(); ignore keyboard so main-menu [5] etc. are not stolen.
+                if (!ctx.isVisible()) return
                 val evt = ctx.kbEvent
                 if (!evt.isDefined) return
                 val key = evt.get().key()

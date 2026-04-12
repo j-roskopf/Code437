@@ -45,7 +45,7 @@ class DeckPersistenceTest {
             GameState.persistDecksIfEnabled()
             val round = tmp.readText(Charsets.UTF_8)
             assertTrue(round.contains("\"format\": \"code437.decks\""), round)
-            assertTrue(round.contains("\"schemaVersion\": 3"), round)
+            assertTrue(round.contains("\"schemaVersion\": 4"), round)
             assertTrue(round.contains("\"MAGE\": ["), round)
             assertTrue(round.contains("\"KEY_BRONZE\""), round)
             assertTrue(round.contains("\"e,RAT,0\""), round)
@@ -124,7 +124,7 @@ class DeckPersistenceTest {
             GameState.persistDecksIfEnabled()
             val text = tmp.readText(Charsets.UTF_8)
             assertTrue(text.contains("\"NECK\": \"NECKLACE+2\""), text)
-            assertTrue(text.contains("\"schemaVersion\": 3"), text)
+            assertTrue(text.contains("\"schemaVersion\": 4"), text)
         } finally {
             if (prevFile == null) System.clearProperty(DeckPersistence.PROP_FILE)
             else System.setProperty(DeckPersistence.PROP_FILE, prevFile)
@@ -166,7 +166,7 @@ class DeckPersistenceTest {
             assertTrue(GameState.characterDeckCards(PlayerCharacter.MAGE).any { it.card == PlayerDeckCard.KEY_BRONZE })
             val rewritten = tmp.readText(Charsets.UTF_8)
             assertTrue(rewritten.contains("\"format\": \"code437.decks\""), rewritten)
-            assertTrue(rewritten.contains("\"schemaVersion\": 3"), rewritten)
+            assertTrue(rewritten.contains("\"schemaVersion\": 4"), rewritten)
         } finally {
             if (prevFile == null) System.clearProperty(DeckPersistence.PROP_FILE)
             else System.setProperty(DeckPersistence.PROP_FILE, prevFile)

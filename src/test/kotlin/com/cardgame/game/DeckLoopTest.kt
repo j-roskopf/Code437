@@ -4,6 +4,7 @@ import com.cardgame.testsupport.TestFixtures.withFreshState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DeckLoopTest {
@@ -83,6 +84,63 @@ class DeckLoopTest {
         val now = GameState.enemyDeckSnapshot()
         assertTrue(now.draw >= 0)
         assertTrue(now.discard >= 0)
+    }
+
+    @Test
+    fun playerDeck_spawnDraw_stripsNonGridKeysToDiscard_soDrawCountMatchesSpawns() = withFreshState {
+        val ch = PlayerCharacter.KNIGHT
+        GameState.selectedPlayerCharacter = ch
+        GameState.resetForLevel(1)
+        GameState.addCardToPlayerDeck(GameState.PlayerDeckCard.KEY_BRONZE)
+        while (true) {
+            val cards = GameState.characterDeckCards(ch)
+            if (cards.size == 1 && cards[0].card == GameState.PlayerDeckCard.KEY_BRONZE) break
+            val idx = cards.indexOfFirst { it.card != GameState.PlayerDeckCard.KEY_BRONZE }
+            assertTrue(idx >= 0, "Expected a non-key card to remove while trimming deck")
+            assertTrue(GameState.removeSelectedCharacterBuildCardAt(idx))
+        }
+        GameState.resetForLevel(1)
+        assertEquals(1, GameState.playerDeckSnapshot().draw)
+
+        val spawn = GameState.drawSpawnForCell(
+            0,
+            0,
+            emptyList(),
+            emptyList(),
+            spawnSourceOverride = GameState.SpawnSource.PLAYER,
+        )
+        assertNull(spawn.first)
+        assertNull(spawn.second)
+        assertEquals(0, GameState.playerDeckSnapshot().draw)
+        assertEquals(1, GameState.playerDeckSnapshot().discard)
+    }
+
+    @Test
+    fun playerDeck_spawnDraw_flushesWhenOnlyEquipmentBlockedCardsRemain() = withFreshState {
+        val ch = PlayerCharacter.MAGE
+        GameState.selectedPlayerCharacter = ch
+        GameState.resetForLevel(1)
+        while (true) {
+            val cards = GameState.characterDeckCards(ch)
+            if (cards.size == 1 && cards[0].card == GameState.PlayerDeckCard.ARMOR) break
+            val idx = cards.indexOfFirst { it.card != GameState.PlayerDeckCard.ARMOR }
+            assertTrue(idx >= 0, "Expected a non-armor card to remove while trimming deck")
+            assertTrue(GameState.removeSelectedCharacterBuildCardAt(idx))
+        }
+        GameState.resetForLevel(1)
+        assertEquals(1, GameState.playerDeckSnapshot().draw)
+        val existingEquip = GridItem(ItemType.HAND_ARMOR, value = 0, gridX = 0, gridY = 0, collected = false)
+
+        val spawn = GameState.drawSpawnForCell(
+            1,
+            1,
+            listOf(existingEquip),
+            emptyList(),
+            spawnSourceOverride = GameState.SpawnSource.PLAYER,
+        )
+        assertNull(spawn.first)
+        assertEquals(0, GameState.playerDeckSnapshot().draw)
+        assertEquals(1, GameState.playerDeckSnapshot().discard)
     }
 
     @Test

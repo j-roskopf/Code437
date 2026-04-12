@@ -215,11 +215,11 @@ object GameScene {
         moved: Boolean,
         onGamblingTile: Boolean,
         onShopTile: Boolean,
-        reachedLevelTarget: Boolean
+        reachedFloorClear: Boolean,
     ): PostMoveSceneRoute = when {
         moved && onGamblingTile -> PostMoveSceneRoute.MINIGAMES
         moved && onShopTile -> PostMoveSceneRoute.SHOP
-        reachedLevelTarget -> PostMoveSceneRoute.LEVEL_COMPLETE
+        reachedFloorClear -> PostMoveSceneRoute.LEVEL_COMPLETE
         else -> PostMoveSceneRoute.NONE
     }
 
@@ -332,6 +332,10 @@ object GameScene {
             deckSource = source,
         )
     }
+
+    /** Which deck the spawn slide should originate from — matches [GridItem.spawnedFromEnemyDeck], not tile type. */
+    private fun deckSourceForSpawnedGridItem(item: GridItem): DeckSource =
+        if (item.spawnedFromEnemyDeck) DeckSource.ENEMY else DeckSource.PLAYER
 
     /** Gentler than [easeSlide] so deck spawn phases feel less snappy. */
     private fun easeDeckMotion(t: Float): Float {
@@ -501,6 +505,11 @@ object GameScene {
     /**
      * After a **horizontal** move (left/right): repack the vacated **column** — cards above the
      * empty cell shift down; new tiles spawn at the top edge.
+     *
+     * If there are slots reserved for deck spawns but **every** spawn is empty (both piles dry /
+     * null draws), **no** repack happens: existing tiles stay put so the board does not shift without
+     * a new card. Pure mover-only fills (no deck slots in this column step) still consolidate and
+     * use the short slide animation.
      */
     private fun slideColumnUpAfterPlayerLeft(col: Int, vacRow: Int) {
         val px = GameState.playerGridX
@@ -564,6 +573,31 @@ object GameScene {
         }
 
         val n = minOf(movers.size, freeSlots.size)
+        val deckSlots = freeSlots.size - n
+        val spawnEdge = if (pullFromBelow) DeckSpawnEdge.BOTTOM else DeckSpawnEdge.TOP
+
+        if (deckSlots == 0) {
+            for (i in 0 until n) {
+                val row = freeSlots[i]
+                val m = movers[i]
+                val oldRow = when (m) {
+                    is GridItem -> m.gridY
+                    is EnemyCard -> m.gridY
+                    else -> row
+                }
+                val oldSx = GridConfig.cellScreenX(col)
+                val oldSy = GridConfig.cellScreenY(oldRow)
+                removeOthersAtCell(col, row, m)
+                setEntityRow(m, row)
+                val newSx = GridConfig.cellScreenX(col)
+                val newSy = GridConfig.cellScreenY(row)
+                registerSlide(m, oldSx, oldSy, newSx, newSy)
+            }
+            return
+        }
+
+        val moverBackups = ArrayList<Pair<Any, Int>>(n)
+        val pendingMoverSlides = mutableListOf<() -> Unit>()
         for (i in 0 until n) {
             val row = freeSlots[i]
             val m = movers[i]
@@ -572,15 +606,16 @@ object GameScene {
                 is EnemyCard -> m.gridY
                 else -> row
             }
+            moverBackups.add(m to oldRow)
             val oldSx = GridConfig.cellScreenX(col)
             val oldSy = GridConfig.cellScreenY(oldRow)
             removeOthersAtCell(col, row, m)
             setEntityRow(m, row)
             val newSx = GridConfig.cellScreenX(col)
             val newSy = GridConfig.cellScreenY(row)
-            registerSlide(m, oldSx, oldSy, newSx, newSy)
+            pendingMoverSlides.add { registerSlide(m, oldSx, oldSy, newSx, newSy) }
         }
-        val spawnEdge = if (pullFromBelow) DeckSpawnEdge.BOTTOM else DeckSpawnEdge.TOP
+        var anyDeckSpawn = false
         for (i in n until freeSlots.size) {
             val row = freeSlots[i]
             removeEntitiesAt(col, row)
@@ -588,18 +623,22 @@ object GameScene {
             val toY = GridConfig.cellScreenY(row)
             val spawn = GameState.drawSpawnForCell(col, row, items, enemies)
             if (spawn.first != null) {
+                anyDeckSpawn = true
                 val newItem = spawn.first
                 items = items + newItem!!
-                val src = if (newItem.type == ItemType.SPIKES || newItem.type == ItemType.BOMB || newItem.type == ItemType.WALL) {
-                    DeckSource.ENEMY
-                } else {
-                    DeckSource.PLAYER
-                }
-                registerDeckSpawnSlide(newItem, toX, toY, spawnEdge, src)
-            } else {
+                registerDeckSpawnSlide(newItem, toX, toY, spawnEdge, deckSourceForSpawnedGridItem(newItem))
+            } else if (spawn.second != null) {
+                anyDeckSpawn = true
                 val newEnemy = spawn.second
                 enemies = enemies + newEnemy!!
                 registerDeckSpawnSlide(newEnemy, toX, toY, spawnEdge, DeckSource.ENEMY)
+            }
+        }
+        if (anyDeckSpawn) {
+            pendingMoverSlides.forEach { it() }
+        } else {
+            for ((m, oldRow) in moverBackups) {
+                setEntityRow(m, oldRow)
             }
         }
     }
@@ -607,6 +646,7 @@ object GameScene {
     /**
      * After a **vertical** move (up/down): repack the vacated **row** — cards to the **right** of
      * the empty cell shift **left** (e.g. leaving bottom-left (0,2) by moving up pulls (1,2)→(0,2)).
+     * Same rules as [slideColumnUpAfterPlayerLeft] for deck vs mover-only fills.
      */
     private fun slideRowLeftAfterPlayerLeft(row: Int, vacCol: Int) {
         val px = GameState.playerGridX
@@ -670,6 +710,31 @@ object GameScene {
         }
 
         val n = minOf(movers.size, freeSlots.size)
+        val deckSlots = freeSlots.size - n
+        val spawnEdge = if (pullFromRight) DeckSpawnEdge.RIGHT else DeckSpawnEdge.LEFT
+
+        if (deckSlots == 0) {
+            for (i in 0 until n) {
+                val col = freeSlots[i]
+                val m = movers[i]
+                val oldCol = when (m) {
+                    is GridItem -> m.gridX
+                    is EnemyCard -> m.gridX
+                    else -> col
+                }
+                val oldSx = GridConfig.cellScreenX(oldCol)
+                val oldSy = GridConfig.cellScreenY(row)
+                removeOthersAtCell(col, row, m)
+                setEntityCol(m, col)
+                val newSx = GridConfig.cellScreenX(col)
+                val newSy = GridConfig.cellScreenY(row)
+                registerSlide(m, oldSx, oldSy, newSx, newSy)
+            }
+            return
+        }
+
+        val moverBackups = ArrayList<Pair<Any, Int>>(n)
+        val pendingMoverSlides = mutableListOf<() -> Unit>()
         for (i in 0 until n) {
             val col = freeSlots[i]
             val m = movers[i]
@@ -678,15 +743,16 @@ object GameScene {
                 is EnemyCard -> m.gridX
                 else -> col
             }
+            moverBackups.add(m to oldCol)
             val oldSx = GridConfig.cellScreenX(oldCol)
             val oldSy = GridConfig.cellScreenY(row)
             removeOthersAtCell(col, row, m)
             setEntityCol(m, col)
             val newSx = GridConfig.cellScreenX(col)
             val newSy = GridConfig.cellScreenY(row)
-            registerSlide(m, oldSx, oldSy, newSx, newSy)
+            pendingMoverSlides.add { registerSlide(m, oldSx, oldSy, newSx, newSy) }
         }
-        val spawnEdge = if (pullFromRight) DeckSpawnEdge.RIGHT else DeckSpawnEdge.LEFT
+        var anyDeckSpawn = false
         for (i in n until freeSlots.size) {
             val col = freeSlots[i]
             removeEntitiesAt(col, row)
@@ -694,18 +760,22 @@ object GameScene {
             val toY = GridConfig.cellScreenY(row)
             val spawn = GameState.drawSpawnForCell(col, row, items, enemies)
             if (spawn.first != null) {
+                anyDeckSpawn = true
                 val newItem = spawn.first
                 items = items + newItem!!
-                val src = if (newItem.type == ItemType.SPIKES || newItem.type == ItemType.BOMB || newItem.type == ItemType.WALL) {
-                    DeckSource.ENEMY
-                } else {
-                    DeckSource.PLAYER
-                }
-                registerDeckSpawnSlide(newItem, toX, toY, spawnEdge, src)
-            } else {
+                registerDeckSpawnSlide(newItem, toX, toY, spawnEdge, deckSourceForSpawnedGridItem(newItem))
+            } else if (spawn.second != null) {
+                anyDeckSpawn = true
                 val newEnemy = spawn.second
                 enemies = enemies + newEnemy!!
                 registerDeckSpawnSlide(newEnemy, toX, toY, spawnEdge, DeckSource.ENEMY)
+            }
+        }
+        if (anyDeckSpawn) {
+            pendingMoverSlides.forEach { it() }
+        } else {
+            for ((m, oldCol) in moverBackups) {
+                setEntityCol(m, oldCol)
             }
         }
     }
@@ -1165,10 +1235,10 @@ object GameScene {
             else -> item.type.label
         }.take(cw - 2)
         val tx = centerX(title, sx, cw)
-        for ((i, ch) in title.withIndex()) {
+        for ((i, glyph) in title.withIndex()) {
             val pxX = tx + i
             if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
-                canv.drawPixel(px(ch, color), pxX, sy + 1, 1)
+                canv.drawPixel(px(glyph, color), pxX, sy + 1, 1)
             }
         }
         if (GameState.debugInvincible && item.secretRoom) {
@@ -1218,37 +1288,37 @@ object GameScene {
             val pulse = bombTickFlash.intensityAt(item.gridX, item.gridY)
             val digitHot = CPColor(255, 245, 120, "bomb-digit")
             val arrowHot = CPColor(255, 200, 80, "bomb-arrow")
-            for ((i, ch) in prefix.withIndex()) {
+            for ((i, glyph) in prefix.withIndex()) {
                 val pxX = lx + i
                 if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
                     val c = lerpColor(dimColor, arrowHot, pulse * 0.9f)
-                    canv.drawPixel(px(ch, c), pxX, labelRow, 1)
+                    canv.drawPixel(px(glyph, c), pxX, labelRow, 1)
                 }
             }
-            for ((i, ch) in numStr.withIndex()) {
+            for ((i, glyph) in numStr.withIndex()) {
                 val pxX = lx + prefix.length + i
                 if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
                     val c = lerpColor(dimColor, digitHot, pulse * 0.95f)
-                    canv.drawPixel(px(ch, c), pxX, labelRow, 1)
+                    canv.drawPixel(px(glyph, c), pxX, labelRow, 1)
                 }
             }
             if (pulse > 0.12f) {
                 val glow = lerpColor(dimColor, CPColor(255, 255, 255, "glow"), pulse * 0.55f)
-                for ((i, ch) in numStr.withIndex()) {
-                    if (ch.isDigit()) {
+                for ((i, glyph) in numStr.withIndex()) {
+                    if (glyph.isDigit()) {
                         val pxX = lx + prefix.length + i
                         if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
-                            canv.drawPixel(px(ch, glow), pxX, labelRow - 1, 1)
+                            canv.drawPixel(px(glyph, glow), pxX, labelRow - 1, 1)
                         }
                     }
                 }
             }
         } else {
             val lx = centerX(label, sx, cw)
-            for ((i, ch) in label.withIndex()) {
+            for ((i, glyph) in label.withIndex()) {
                 val pxX = lx + i
                 if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
-                    canv.drawPixel(px(ch, dimColor), pxX, labelRow, 1)
+                    canv.drawPixel(px(glyph, dimColor), pxX, labelRow, 1)
                 }
             }
         }
@@ -1275,10 +1345,10 @@ object GameScene {
             if (enemy.isElite) "ELITE ${enemy.kind.displayName}" else enemy.kind.displayName
         val name = rawTitle.take(cw - 2)
         val nx = centerX(name, sx, cw)
-        for ((i, ch) in name.withIndex()) {
+        for ((i, glyph) in name.withIndex()) {
             val pxX = nx + i
             if (allowInteriorClipDraw(sx, cw, pxX, interiorClipHalfWidth)) {
-                canv.drawPixel(px(ch, nameColor), pxX, sy + 1, 1)
+                canv.drawPixel(px(glyph, nameColor), pxX, sy + 1, 1)
             }
         }
         if (GameState.debugInvincible && enemy.secretRoom) {
@@ -1396,7 +1466,7 @@ object GameScene {
         val bg = Option.apply(BG_COLOR)
         val z = 2
         val textMax = gc.CELL_WIDTH.coerceAtLeast(8)
-        val goal = LevelConfig.targetScore(GameState.currentLevel)
+        val remEnemies = GameState.remainingEnemyUnitsForFloor()
         val moneyFlash = GameState.moneyFlashText()
         val goldLine = if (moneyFlash != null) {
             hudLineFit("GOLD ${GameState.money}  ($moneyFlash)", textMax)
@@ -1418,7 +1488,7 @@ object GameScene {
         val hpLine = hudLineFit("HP $hpNow/$hpMax [$hpBar]", textMax)
         val lines = listOf(
             hudLineFit("INVENTORY", textMax),
-            hudLineFit("LV ${GameState.currentLevel}  SCORE ${GameState.score}/$goal", textMax),
+            hudLineFit("LV ${GameState.currentLevel}  SCORE ${GameState.score}  FOE $remEnemies", textMax),
             hpLine,
             hudLineFit("ATK ${GameState.playerAttackDisplay()}", textMax),
             hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax),
@@ -1836,7 +1906,7 @@ object GameScene {
                                 GameState.playerGridX = (newX - dx).coerceIn(0, GridConfig.COLS - 1)
                                 GameState.playerGridY = (newY - dy).coerceIn(0, GridConfig.ROWS - 1)
                                 dropEliteKeyAt(newX, newY)
-                                if (GameState.score >= LevelConfig.targetScore(GameState.currentLevel)) {
+                                if (GameState.isFloorClearByEnemyElimination(enemies.any { !it.defeated })) {
                                     GameState.deferLevelCompleteForEliteKey = true
                                 }
                             }
@@ -1895,11 +1965,11 @@ object GameScene {
                     it.type == ItemType.SHOP && !it.collected &&
                         it.gridX == GameState.playerGridX && it.gridY == GameState.playerGridY
                 }
-                val reachedLevelTarget =
+                val reachedFloorClear =
                     postMove.shouldCheckLevelComplete &&
-                        GameState.score >= LevelConfig.targetScore(GameState.currentLevel) &&
+                        GameState.isFloorClearByEnemyElimination(enemies.any { !it.defeated }) &&
                         !GameState.deferLevelCompleteForEliteKey
-                when (resolvePostMoveSceneRoute(postMove.moved, onGamblingTile, onShopTile, reachedLevelTarget)) {
+                when (resolvePostMoveSceneRoute(postMove.moved, onGamblingTile, onShopTile, reachedFloorClear)) {
                     PostMoveSceneRoute.MINIGAMES -> {
                         GameState.minigamesReturnScene = SceneId.GAME
                         ctx.switchScene(SceneId.MINIGAMES, false)

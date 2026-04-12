@@ -18,13 +18,17 @@ class EquipmentRulesTest {
     }
 
     @Test
-    fun equipmentArmor_values_matchDesign() {
-        assertEquals(2, ItemType.HELMET.equipmentArmorValue())
-        assertEquals(1, ItemType.NECKLACE.equipmentArmorValue())
-        assertEquals(3, ItemType.CHEST_ARMOR.equipmentArmorValue())
-        assertEquals(1, ItemType.HAND_ARMOR.equipmentArmorValue())
-        assertEquals(2, ItemType.LEGGINGS.equipmentArmorValue())
-        assertEquals(1, ItemType.BOOTS_ARMOR.equipmentArmorValue())
+    fun equipmentArmor_eachBodySlotContributesOne() {
+        for (t in listOf(
+            ItemType.HELMET,
+            ItemType.NECKLACE,
+            ItemType.CHEST_ARMOR,
+            ItemType.HAND_ARMOR,
+            ItemType.LEGGINGS,
+            ItemType.BOOTS_ARMOR,
+        )) {
+            assertEquals(1, t.equipmentArmorValue())
+        }
     }
 
     @Test
@@ -46,6 +50,6 @@ class EquipmentRulesTest {
         GameState.setEquippedItem(EquipmentSlot.HANDS, ItemType.HAND_ARMOR)
         GameState.setEquippedItem(EquipmentSlot.PANTS, ItemType.LEGGINGS)
         GameState.setEquippedItem(EquipmentSlot.BOOTS, ItemType.BOOTS_ARMOR)
-        assertEquals(10, GameState.totalEquipmentArmor())
+        assertEquals(6, GameState.totalEquipmentArmor())
     }
 }

@@ -13,7 +13,7 @@ object RunStats {
         private set
     var secretRoomsVisited: Int = 0
         private set
-    /** Number of level clears (each time the player reached the level-complete screen via score). */
+    /** Number of level clears (each time the player reached the level-complete screen). */
     var levelsCleared: Int = 0
         private set
     /** Sum of [GameState.score] banked when leaving each level-complete screen (N). */

@@ -28,7 +28,7 @@ class GameStateCoreTest {
         GameState.resetForLevel(2)
 
         assertEquals(2, GameState.currentLevel)
-        assertEquals(20, GameState.playerHealth)
+        assertEquals(GameState.PLAYER_MAX_HEALTH, GameState.playerHealth)
         assertEquals(3, GameState.playerAttack)
         assertEquals(0, GameState.score)
         assertEquals(0, GameState.money)
@@ -78,24 +78,24 @@ class GameStateCoreTest {
     fun playerShieldDisplay_reflectsEquipmentAndTempShield() = withFreshState {
         GameState.setEquippedItem(EquipmentSlot.HEAD, ItemType.HELMET)
         GameState.setEquippedItem(EquipmentSlot.CHEST, ItemType.CHEST_ARMOR)
-        assertEquals(5, GameState.playerShield())
-        assertEquals("5", GameState.playerShieldDisplay())
+        assertEquals(2, GameState.playerShield())
+        assertEquals("2", GameState.playerShieldDisplay())
 
         GameState.addTemporaryShield(4)
-        assertEquals("5 (+4)", GameState.playerShieldDisplay())
+        assertEquals("2 (+4)", GameState.playerShieldDisplay())
     }
 
     @Test
     fun damageAfterEnemyAttack_depletesTemporaryShieldBeforeArmor() = withFreshState {
-        GameState.setEquippedItem(EquipmentSlot.CHEST, ItemType.CHEST_ARMOR) // +3 armor
+        GameState.setEquippedItem(EquipmentSlot.CHEST, ItemType.CHEST_ARMOR) // +1 armor
         GameState.addTemporaryShield(6)
 
         val dmg1 = GameState.damageAfterEnemyAttack(10)
-        assertEquals(1, dmg1) // 10 - 6 temp - 3 armor
+        assertEquals(3, dmg1) // 10 - 6 temp - 1 armor
         assertEquals(0, GameState.temporaryShield)
 
         val dmg2 = GameState.damageAfterEnemyAttack(2)
-        assertEquals(0, dmg2) // fully blocked by armor
+        assertEquals(1, dmg2) // 2 - 1 armor
     }
 
     @Test

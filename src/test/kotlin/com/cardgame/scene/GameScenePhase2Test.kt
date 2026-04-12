@@ -188,7 +188,7 @@ class GameScenePhase2Test {
             moved = true,
             onGamblingTile = true,
             onShopTile = true,
-            reachedLevelTarget = true
+            reachedFloorClear = true
         )
         assertEquals(GameScene.PostMoveSceneRoute.MINIGAMES, route)
     }
@@ -199,7 +199,7 @@ class GameScenePhase2Test {
             moved = true,
             onGamblingTile = false,
             onShopTile = true,
-            reachedLevelTarget = true
+            reachedFloorClear = true
         )
         assertEquals(GameScene.PostMoveSceneRoute.SHOP, route)
     }
@@ -210,7 +210,7 @@ class GameScenePhase2Test {
             moved = true,
             onGamblingTile = false,
             onShopTile = false,
-            reachedLevelTarget = true
+            reachedFloorClear = true
         )
         assertEquals(GameScene.PostMoveSceneRoute.LEVEL_COMPLETE, route)
     }
@@ -221,7 +221,7 @@ class GameScenePhase2Test {
             moved = false,
             onGamblingTile = false,
             onShopTile = false,
-            reachedLevelTarget = false
+            reachedFloorClear = false
         )
         assertEquals(GameScene.PostMoveSceneRoute.NONE, route)
     }

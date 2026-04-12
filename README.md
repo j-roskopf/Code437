@@ -1,7 +1,20 @@
-# Code 437 (Card Crawler)
+# Code 437
+
+![title](./docs/screenshots/title.png)
 
 Code 437 is a terminal/Emuterm ASCII roguelite built with Kotlin + [CosPlay](https://cosplayengine.org/).
-You move one tile per turn on a `5x3` card grid, fight enemies, collect upgrades/resources, complete quests, and clear floors by reaching score targets.
+You move one tile per turn on a `5x3` card grid, fight enemies, collect upgrades/resources, complete quests, and clear each floor by eliminating that floor’s enemy objectives (score is still tracked for your run).
+
+## New player guide
+
+- **Clearing a floor** — Defeat every **enemy-unit** card dealt from the **enemy deck** for this floor, and remove all enemies from the grid. Hazards and chests don’t count toward that quota.
+- **Two decks** — **Player deck**: your character build (consumables, gear, etc.); draw pile is **finite** each floor and does not recycle discard back into draw mid-floor. **Enemy deck**: enemies plus world tiles (quests, chests, spikes, walls, …); also finite per floor. The spawn-queue panel previews whether the next refill tile comes from the player or enemy side.
+- **Refills** — When you move off a cell, its row/column can pull new tiles. If neither deck can place anything, gaps may stay empty until the next floor.
+- **Combat** — Attacks hit **temporary shield** (from shield pickups) first, then **SHD** (permanent, from equipped armor), then **HP**.
+- **Armor & SHD** — Six slots: head, neck, chest, arms, legs, boots. Armor enters play from **player-deck spawns** and from the **shop**; **gold chests and quest tiles** on the grid always come from the **enemy deck**. Each equipped armor piece adds **+1** to permanent SHD; card **+** upgrades add extra SHD on top. At most **one** armor pickup may sit on the board at a time (anti-clutter rule).
+- **Shop** — **Five** offers. One random slot tries to sell a **body-slot armor type you don’t already have** in your deck; if you already own every slot, that offer is non-armor like the others.
+- **Enemy deck build** — Each floor builds a **24-card** enemy deck (shuffled). **Elites** roll at ~10% when placing enemies; enemy HP/ATK scale with floor. The deck is padded with at least **3 quest** hazard cards when quests are available.
+- **Random loot odds** (when rolling a non-hazard tile among general loot): **~5%** spikes/bomb hazard branch; else **~5%** wall, **~9%** gold chest, **~5%** quest (if allowed), **~5%** gambling if you have gold — then other items/enemy spawns. (**~3%** secret-room roll on some spawns.) Exact order is sequential in code; treat as ballpark.
 
 ## Core Loop
 
@@ -19,7 +32,7 @@ Each player action follows this flow:
 ### Combat and Progression
 
 - Turn-based enemy combat with attack exchanges and defeat checks.
-- Level-based score targets across 10 floors.
+- Ten floors with enemy-deck elimination to clear each floor; score tracked for the run.
 - Level-based enemy pools, plus elite variants with boosted stats and rewards.
 - Player combat stats include attack, armor-derived shield, and temporary shield.
 - Wall collisions can apply a temporary attack penalty that decays over movement actions.
@@ -153,7 +166,5 @@ Recommended testing approach going forward:
 4. Add smoke tests for run transitions (quest/rest/shop/summary loops).
 
 ## Screenshots
-
-In-run board sample:
 
 ![Code 437 run board](docs/screenshots/run-board.png)

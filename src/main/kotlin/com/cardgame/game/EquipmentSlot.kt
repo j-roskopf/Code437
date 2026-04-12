@@ -27,14 +27,15 @@ fun ItemType.isBlockedByCurrentEquipment(): Boolean {
     return GameState.equippedItems[slot.ordinal] == this
 }
 
-/** Permanent armor from this piece when equipped (ignores [GridItem.value]). */
+/** Permanent armor from this piece when equipped (ignores [GridItem.value]); each slot is +1 SHD before deck upgrades. */
 fun ItemType.equipmentArmorValue(): Int = when (this) {
-    ItemType.HELMET -> 2
-    ItemType.NECKLACE -> 1
-    ItemType.CHEST_ARMOR -> 3
-    ItemType.HAND_ARMOR -> 1
-    ItemType.LEGGINGS -> 2
-    ItemType.BOOTS_ARMOR -> 1
+    ItemType.HELMET,
+    ItemType.NECKLACE,
+    ItemType.CHEST_ARMOR,
+    ItemType.HAND_ARMOR,
+    ItemType.LEGGINGS,
+    ItemType.BOOTS_ARMOR,
+    -> 1
     else -> 0
 }
 

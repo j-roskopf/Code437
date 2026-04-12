@@ -28,17 +28,120 @@ object MenuScene {
     private val KEY_2 = kbKey("KEY_2")
     private val KEY_3 = kbKey("KEY_3")
     private val KEY_4 = kbKey("KEY_4")
+    private val KEY_LO_X = kbKey("KEY_LO_X")
+    private val KEY_UP_X = kbKey("KEY_UP_X")
+    private val KEY_LO_Y = kbKey("KEY_LO_Y")
+    private val KEY_UP_Y = kbKey("KEY_UP_Y")
+    private val KEY_LO_N = kbKey("KEY_LO_N")
+    private val KEY_UP_N = kbKey("KEY_UP_N")
+    private val KEY_LO_B = kbKey("KEY_LO_B")
+    private val KEY_ESC = kbKey("KEY_ESC")
     private val KEY_Q = kbKey("KEY_LO_Q")
+
+    private fun isYesKey(key: CPKeyboardKey): Boolean =
+        key == KEY_LO_Y ||
+            key == KEY_UP_Y ||
+            key.id().equals("y", ignoreCase = true) ||
+            key.ch() == 'y' ||
+            key.ch() == 'Y'
+
+    private fun isNoKey(key: CPKeyboardKey): Boolean =
+        key == KEY_LO_N ||
+            key == KEY_UP_N ||
+            key.id().equals("n", ignoreCase = true) ||
+            key.ch() == 'n' ||
+            key.ch() == 'N'
+
+    private fun wantsDeletePrompt(key: CPKeyboardKey): Boolean =
+        key == KEY_LO_X ||
+            key == KEY_UP_X ||
+            key.id().equals("x", ignoreCase = true) ||
+            key.ch() == 'x' ||
+            key.ch() == 'X'
 
     fun create(): CPScene {
         val shaders = emptyScalaSeq()
         val tags = emptyStringSet()
 
         var menuFrame = 0
+        var deleteConfirmActive = false
+        var deleteSaveFeedbackTicks = 0
 
-        val displaySprite = object : CPCanvasSprite("menu-display", shaders, tags) {
+        val menuSprite = object : CPCanvasSprite("menu-root", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (deleteSaveFeedbackTicks > 0) {
+                    deleteSaveFeedbackTicks--
+                }
+                val evt = ctx.getKbEvent()
+                if (!evt.isDefined) {
+                    menuFrame++
+                    return
+                }
+                val key = evt.get().key()
+                var handled = false
+
+                if (deleteConfirmActive) {
+                    when {
+                        isYesKey(key) -> {
+                            val ok = kotlin.runCatching { GameState.deleteAllSaveDataAndResetToDefaults() }.isSuccess
+                            deleteConfirmActive = false
+                            if (ok) {
+                                deleteSaveFeedbackTicks = 120
+                            }
+                            kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+                            handled = true
+                        }
+                        isNoKey(key) || key == KEY_ESC || key == KEY_LO_B -> {
+                            deleteConfirmActive = false
+                            handled = true
+                        }
+                        else -> {
+                            // Swallow other keys so they do not trigger menu actions under the dialog.
+                            handled = true
+                        }
+                    }
+                    if (handled) {
+                        ctx.consumeKbEvent()
+                    }
+                    menuFrame++
+                    return
+                }
+
+                when {
+                    key == KEY_1 -> {
+                        GameState.resetForLevel(1)
+                        kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+                        ctx.addScene(GameScene.create(), false, false, false)
+                        ctx.switchScene(SceneId.GAME, false)
+                        handled = true
+                    }
+                    key == KEY_2 -> {
+                        ctx.switchScene(SceneId.LEVEL_SELECT, false)
+                        handled = true
+                    }
+                    key == KEY_3 -> {
+                        GameState.characterSelectCursor = GameState.selectedPlayerCharacter.ordinal
+                        ctx.switchScene(SceneId.CHARACTER_SELECT, false)
+                        handled = true
+                    }
+                    key == KEY_4 -> {
+                        GameState.minigamesReturnScene = SceneId.MENU
+                        ctx.switchScene(SceneId.MINIGAMES, false)
+                        handled = true
+                    }
+                    wantsDeletePrompt(key) -> {
+                        deleteConfirmActive = true
+                        handled = true
+                    }
+                    key == KEY_Q -> {
+                        ctx.exitGame()
+                        handled = true
+                    }
+                }
+                if (handled) {
+                    ctx.consumeKbEvent()
+                }
                 menuFrame++
             }
 
@@ -53,6 +156,7 @@ object MenuScene {
                     "[2]  Level Select" to CPColor.C_STEEL_BLUE1(),
                     "[3]  Character" to CPColor.C_STEEL_BLUE1(),
                     "[4]  Mini Games" to CPColor.C_STEEL_BLUE1(),
+                    "[X]  Delete save (unlocks + decks)" to CPColor.C_ORANGE_RED1(),
                     "[Q]  Quit" to CPColor.C_GREY50(),
                 )
                 val totalRows = artH + 4 + 2 * options.size
@@ -97,33 +201,59 @@ object MenuScene {
                     canv.drawString(optionX, y, 2, text, color, Option.empty())
                     y += 2
                 }
-            }
-        }
+                val rowAfterMenu = y
+                if (deleteSaveFeedbackTicks > 0) {
+                    val msg = "Save data cleared (progress + decks)."
+                    canv.drawString(
+                        (canv.width() - msg.length) / 2,
+                        rowAfterMenu + 1,
+                        2,
+                        msg,
+                        CPColor.C_GREEN1(),
+                        Option.empty(),
+                    )
+                }
 
-        val inputSprite = object : CPCanvasSprite("menu-input", shaders, tags) {
-            override fun update(ctx: CPSceneObjectContext) {
-                super.update(ctx)
-                val evt = ctx.kbEvent
-                if (!evt.isDefined) return
-                val key = evt.get().key()
-                when (key) {
-                    KEY_1 -> {
-                        GameState.resetForLevel(1)
-                        kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
-                        ctx.addScene(GameScene.create(), false, false, false)
-                        ctx.switchScene(SceneId.GAME, false)
+                if (deleteConfirmActive) {
+                    val lines = listOf(
+                        "  ERASE ALL SAVE DATA?  " to CPColor.C_ORANGE_RED1(),
+                        " Unlock progress + deck builds " to CPColor.C_GREY70(),
+                        "" to CPColor.C_GREY50(),
+                        "  [Y]  Yes, delete everything  " to CPColor.C_WHITE(),
+                        "  [N]  Cancel   B / ESC  also cancel  " to CPColor.C_GREY50(),
+                    )
+                    val boxW = lines.maxOf { it.first.length }.coerceAtLeast(36)
+                    val boxH = lines.count { it.first.isNotEmpty() } * 2 + 2
+                    val boxX = (canv.width() - boxW) / 2
+                    // Place directly under the menu so the ASCII title stays visible (not screen-centered).
+                    val preferredY = rowAfterMenu + 1
+                    val bottomPinnedY = (canv.height() - boxH - 2).coerceAtLeast(2)
+                    val boxY =
+                        if (preferredY + boxH + 1 <= canv.height()) {
+                            preferredY
+                        } else {
+                            // Very short terminal: pin to bottom instead of sliding up over the title.
+                            bottomPinnedY
+                        }
+                    val border = CPColor(90, 40, 40, "confirm-border")
+                    for (bx in boxX - 1 until boxX + boxW + 1) {
+                        canv.drawPixel(CPPixel(' ', CPColor.C_WHITE(), Option.apply(border), 0), bx, boxY - 1, 1)
+                        canv.drawPixel(CPPixel(' ', CPColor.C_WHITE(), Option.apply(border), 0), bx, boxY + boxH, 1)
                     }
-                    KEY_2 -> ctx.switchScene(SceneId.LEVEL_SELECT, false)
-                    KEY_3 -> {
-                        GameState.characterSelectCursor = GameState.selectedPlayerCharacter.ordinal
-                        ctx.switchScene(SceneId.CHARACTER_SELECT, false)
+                    for (by in boxY - 1..boxY + boxH) {
+                        canv.drawPixel(CPPixel(' ', CPColor.C_WHITE(), Option.apply(border), 0), boxX - 1, by, 1)
+                        canv.drawPixel(CPPixel(' ', CPColor.C_WHITE(), Option.apply(border), 0), boxX + boxW, by, 1)
                     }
-                    KEY_4 -> {
-                        GameState.minigamesReturnScene = SceneId.MENU
-                        ctx.switchScene(SceneId.MINIGAMES, false)
+                    var ly = boxY + 1
+                    for ((text, color) in lines) {
+                        if (text.isEmpty()) {
+                            ly += 1
+                            continue
+                        }
+                        val lx = boxX + (boxW - text.length) / 2
+                        canv.drawString(lx, ly, 2, text, color, Option.empty())
+                        ly += 2
                     }
-                    KEY_Q -> ctx.exitGame()
-                    else -> {}
                 }
             }
         }
@@ -132,7 +262,7 @@ object MenuScene {
             SceneId.MENU.id,
             Option.empty(),
             bgPx,
-            scalaSeqOf(displaySprite, inputSprite)
+            scalaSeqOf(menuSprite)
         )
     }
 }

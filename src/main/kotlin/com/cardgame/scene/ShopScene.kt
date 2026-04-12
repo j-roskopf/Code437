@@ -127,6 +127,7 @@ object ShopScene {
                     removeFeedbackTicks--
                     if (removeFeedbackTicks == 0) removeFeedback = null
                 }
+                if (!ctx.isVisible()) return
                 val evt = ctx.kbEvent
                 if (!evt.isDefined) return
                 val key = evt.get().key()

@@ -46,4 +46,14 @@ object Progress {
     }
 
     fun isUnlocked(level: Int): Boolean = level in 1..maxSelectableLevel
+
+    /** Deletes `~/.cardcrawler_progress` and resets in-memory unlocks to level 1 only. */
+    fun deleteSavedProgress() {
+        try {
+            if (file.exists()) file.delete()
+        } catch (_: Exception) {
+            // ignore
+        }
+        maxSelectableLevel = 1
+    }
 }

@@ -23,7 +23,8 @@ object LevelCompleteScene {
                 val lv = GameState.currentLevel
                 val lines = mutableListOf<Pair<String, CPColor>>()
                 lines.add("LEVEL $lv CLEARED!" to CPColor.C_GOLD1())
-                lines.add("Score: ${GameState.score} (goal ${LevelConfig.targetScore(lv)})" to CPColor.C_STEEL_BLUE1())
+                lines.add("Score this floor: ${GameState.score}" to CPColor.C_STEEL_BLUE1())
+                lines.add("Clear: defeat all enemy units on this floor." to CPColor.C_GREY70())
                 lines.add("" to CPColor.C_GREY50())
                 if (lv < LevelConfig.COUNT) {
                     lines.add("N  Next level" to CPColor.C_GREEN1())

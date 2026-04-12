@@ -366,6 +366,7 @@ object SicBoScene {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
                 if (rolling) return
+                if (!ctx.isVisible()) return
                 val evt = ctx.kbEvent
                 if (!evt.isDefined) return
                 val key = evt.get().key()

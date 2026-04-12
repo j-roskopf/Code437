@@ -57,6 +57,21 @@ class LevelGeneratorTest {
     }
 
     @Test
+    fun enemyDeck_buildExcludesGamblingWhenPlayerHasNoMoney() = withFreshState {
+        GameState.resetForLevel(1)
+        val deck = LevelGenerator.buildEnemyDeckForLevel(1, 800)
+        assertTrue(deck.none { it.hazardType == ItemType.GAMBLING })
+    }
+
+    @Test
+    fun enemyDeck_buildIncludesGamblingWhenPlayerHasMoney() = withFreshState {
+        GameState.resetForLevel(1)
+        GameState.addMoney(50)
+        val deck = LevelGenerator.buildEnemyDeckForLevel(1, 2000)
+        assertTrue(deck.any { it.hazardType == ItemType.GAMBLING })
+    }
+
+    @Test
     fun hazardRate_isLowButNonZero() = withFreshState {
         val samples = 4000
         var hazards = 0
@@ -140,10 +155,10 @@ class LevelGeneratorTest {
     @Test
     fun fillAllCellsExcept_drawsExactlyTenEnemyDeckCards() = withFreshState {
         GameState.resetForLevel(1)
-        assertEquals(30, GameState.enemyDeckSnapshot().draw)
+        assertEquals(24, GameState.enemyDeckSnapshot().draw)
         assertEquals(0, GameState.enemyDeckSnapshot().discard)
         LevelGenerator.fillAllCellsExcept(0 to 0)
-        assertEquals(20, GameState.enemyDeckSnapshot().draw, "Enemy deck should lose exactly 10 cards")
+        assertEquals(14, GameState.enemyDeckSnapshot().draw, "Enemy deck should lose exactly 10 cards")
         assertEquals(0, GameState.enemyDeckSnapshot().discard)
     }
 

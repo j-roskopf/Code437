@@ -11,7 +11,7 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
  */
 object DeckPersistenceCodec {
     const val FORMAT = "code437.decks"
-    const val CURRENT_SCHEMA_VERSION = 3
+    const val CURRENT_SCHEMA_VERSION = 4
 
     data class PersistedDeckState(
         val selectedCharacter: String? = null,
@@ -22,6 +22,9 @@ object DeckPersistenceCodec {
         val enemyDeckDiscard: List<String> = emptyList(),
         val spawnQueue: List<String> = emptyList(),
         val equipped: Map<String, String> = emptyMap(),
+        /** Per-floor enemy elimination objective; null on legacy saves (reconstructed in [GameState.loadDeckPersistenceAtStartup]). */
+        val enemyObjectiveQuota: Int? = null,
+        val enemyObjectiveDefeated: Int? = null,
         val sourceSchemaVersion: Int = CURRENT_SCHEMA_VERSION,
         val sourceFormat: String = FORMAT,
     )
@@ -53,7 +56,7 @@ object DeckPersistenceCodec {
 
     private data class DeckDocV3(
         val format: String = FORMAT,
-        val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
+        val schemaVersion: Int = 3,
         val selectedCharacter: String? = null,
         val characterDecks: Map<String, List<String>> = emptyMap(),
         val playerDeckDraw: List<String> = emptyList(),
@@ -64,6 +67,21 @@ object DeckPersistenceCodec {
         val equipped: Map<String, String> = emptyMap(),
     )
 
+    private data class DeckDocV4(
+        val format: String = FORMAT,
+        val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
+        val selectedCharacter: String? = null,
+        val characterDecks: Map<String, List<String>> = emptyMap(),
+        val playerDeckDraw: List<String> = emptyList(),
+        val playerDeckDiscard: List<String> = emptyList(),
+        val enemyDeckDraw: List<String> = emptyList(),
+        val enemyDeckDiscard: List<String> = emptyList(),
+        val spawnQueue: List<String> = emptyList(),
+        val equipped: Map<String, String> = emptyMap(),
+        val enemyObjectiveQuota: Int? = null,
+        val enemyObjectiveDefeated: Int? = null,
+    )
+
     private val moshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()
@@ -71,6 +89,7 @@ object DeckPersistenceCodec {
     private val v1Adapter = moshi.adapter(DeckDocV1::class.java)
     private val v2Adapter = moshi.adapter(DeckDocV2::class.java)
     private val v3Adapter = moshi.adapter(DeckDocV3::class.java).indent("  ")
+    private val v4Adapter = moshi.adapter(DeckDocV4::class.java).indent("  ")
 
     fun decode(text: String): PersistedDeckState? {
         val raw = text.trim()
@@ -79,7 +98,7 @@ object DeckPersistenceCodec {
     }
 
     fun encodeCurrent(state: PersistedDeckState): String {
-        val doc = DeckDocV3(
+        val doc = DeckDocV4(
             format = FORMAT,
             schemaVersion = CURRENT_SCHEMA_VERSION,
             selectedCharacter = state.selectedCharacter,
@@ -90,8 +109,10 @@ object DeckPersistenceCodec {
             enemyDeckDiscard = state.enemyDeckDiscard,
             spawnQueue = state.spawnQueue,
             equipped = state.equipped,
+            enemyObjectiveQuota = state.enemyObjectiveQuota,
+            enemyObjectiveDefeated = state.enemyObjectiveDefeated,
         )
-        return v3Adapter.toJson(doc)
+        return v4Adapter.toJson(doc)
     }
 
     fun needsRewrite(state: PersistedDeckState): Boolean =
@@ -137,6 +158,22 @@ object DeckPersistenceCodec {
                     equipped = v3.equipped,
                     sourceSchemaVersion = 3,
                     sourceFormat = v3.format,
+                )
+            }
+            4 -> runCatching { v4Adapter.fromJson(raw) }.getOrNull()?.let { v4 ->
+                PersistedDeckState(
+                    selectedCharacter = v4.selectedCharacter,
+                    characterDecks = v4.characterDecks,
+                    playerDeckDraw = v4.playerDeckDraw,
+                    playerDeckDiscard = v4.playerDeckDiscard,
+                    enemyDeckDraw = v4.enemyDeckDraw,
+                    enemyDeckDiscard = v4.enemyDeckDiscard,
+                    spawnQueue = v4.spawnQueue,
+                    equipped = v4.equipped,
+                    enemyObjectiveQuota = v4.enemyObjectiveQuota,
+                    enemyObjectiveDefeated = v4.enemyObjectiveDefeated,
+                    sourceSchemaVersion = 4,
+                    sourceFormat = v4.format,
                 )
             }
             else -> null
@@ -186,6 +223,8 @@ object DeckPersistenceCodec {
             enemyDeckDiscard = pipe(map["edd"]),
             spawnQueue = csv(map["sq"]),
             equipped = equipped,
+            enemyObjectiveQuota = null,
+            enemyObjectiveDefeated = null,
             sourceSchemaVersion = sourceVer,
             sourceFormat = "legacy",
         )
