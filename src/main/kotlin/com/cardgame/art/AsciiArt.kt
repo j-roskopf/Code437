@@ -562,6 +562,10 @@ object AsciiArt {
         |                              
     """.trimMargin().lines()
 
+    /**
+     * ATK pickup / player-deck attack visuals. Indices must match [GameState.deckCardAttackBoostArtVariant]:
+     * [0] bow (ranged), [1] sword (melee), [2] alternate strike.
+     */
     val ATTACK_BOOST_ARTS: List<List<String>> = listOf(
         """
             |                              

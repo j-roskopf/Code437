@@ -90,14 +90,19 @@ object RestScene {
                 when (evt.get().key()) {
                     KEY_R -> {
                         if (!rested) {
-                            lastHealApplied = QuestSystem.restHealAmount(GameState.playerHealth)
+                            val base = QuestSystem.restHealAmount(GameState.playerHealth)
+                            val bonus = GameState.takePendingRestTileBonusHeal()
+                            lastHealApplied = base + bonus
                             if (lastHealApplied > 0) GameState.playerHealth += lastHealApplied
                             rested = true
                         } else {
                             ctx.switchScene(SceneId.GAME, false)
                         }
                     }
-                    KEY_B, KEY_ESC -> ctx.switchScene(SceneId.GAME, false)
+                    KEY_B, KEY_ESC -> {
+                        if (!rested) GameState.takePendingRestTileBonusHeal()
+                        ctx.switchScene(SceneId.GAME, false)
+                    }
                     else -> {}
                 }
             }

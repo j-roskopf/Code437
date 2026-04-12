@@ -37,3 +37,14 @@ fun ItemType.equipmentArmorValue(): Int = when (this) {
     ItemType.BOOTS_ARMOR -> 1
     else -> 0
 }
+
+/** Short HUD / card-footer tag (head, neck, chest, arms, legs, boots). */
+fun ItemType.equipmentShortTag(): String = when (this) {
+    ItemType.HELMET -> "HEAD"
+    ItemType.NECKLACE -> "NECK"
+    ItemType.CHEST_ARMOR -> "CHEST"
+    ItemType.HAND_ARMOR -> "ARMS"
+    ItemType.LEGGINGS -> "LEGS"
+    ItemType.BOOTS_ARMOR -> "BOOT"
+    else -> ""
+}

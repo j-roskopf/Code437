@@ -56,6 +56,7 @@ object LevelCompleteScene {
                         RunStats.bankLevelClear(GameState.score)
                         if (GameState.currentLevel < LevelConfig.COUNT) {
                             GameState.shopDismissAction = ShopDismissAction.AdvanceLevelRecreateGame
+                            kotlin.runCatching { ctx.deleteScene(SceneId.SHOP_DECK_TRIM) }
                             kotlin.runCatching { ctx.deleteScene(SceneId.SHOP) }
                             ctx.addScene(ShopScene.create(), false, false, false)
                             ctx.switchScene(SceneId.SHOP, false)

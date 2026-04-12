@@ -112,6 +112,24 @@ class LevelGeneratorTest {
     }
 
     @Test
+    fun spawnItemFromType_chestSpawnsRealChestNotRandomLoot() = withFreshState {
+        GameState.resetForLevel(1)
+        repeat(80) {
+            val item = LevelGenerator.spawnItemFromType(
+                ItemType.CHEST,
+                1,
+                1,
+                existingItems = emptyList(),
+                existingEnemies = emptyList(),
+                spawnedFromEnemyDeck = false,
+                spawnedFromPlayerDeck = true,
+            )
+            assertEquals(ItemType.CHEST, item.type, "Expected a gold chest tile, not a random loot type")
+            assertTrue(item.spawnedFromPlayerDeck)
+        }
+    }
+
+    @Test
     fun initialBoardSpawnSources_hasTenEnemyAndFourPlayer() {
         val sources = LevelGenerator.initialBoardSpawnSources(Random(0L))
         assertEquals(GridConfig.COLS * GridConfig.ROWS - 1, sources.size)
@@ -129,18 +147,4 @@ class LevelGeneratorTest {
         assertEquals(0, GameState.enemyDeckSnapshot().discard)
     }
 
-    @Test
-    fun fillAllCellsExcept_preventsOriginDoubleClosedChestSoftlock() = withFreshState {
-        repeat(200) {
-            val (items, _) = LevelGenerator.fillAllCellsExcept(0 to 0)
-            fun closedChestAt(x: Int, y: Int): Boolean {
-                val tile = items.find { !it.collected && it.gridX == x && it.gridY == y } ?: return false
-                return tile.type == ItemType.CHEST && !tile.chestOpened && !GameState.hasKey(tile.tier)
-            }
-            assertFalse(
-                closedChestAt(1, 0) && closedChestAt(0, 1),
-                "Origin got fully blocked by closed chests"
-            )
-        }
-    }
 }

@@ -56,7 +56,6 @@ class DeckLoopTest {
             ItemType.HEALTH_POTION,
             ItemType.ATTACK_BOOST,
             ItemType.SHIELD,
-            ItemType.KEY,
             ItemType.REST,
             ItemType.SHOP,
             ItemType.QUEST,
@@ -105,19 +104,83 @@ class DeckLoopTest {
     }
 
     @Test
-    fun armor_consumedDoesNotReturnToDeckCycle() = withFreshState {
-        GameState.selectedPlayerCharacter = PlayerCharacter.MAGE
+    fun armor_equipped_staysInCharacterDeck_butSkipsOneCopyWhenRebuildingDrawPile() = withFreshState {
+        GameState.selectedPlayerCharacter = PlayerCharacter.THIEF
         GameState.resetForLevel(1)
         GameState.addCardToPlayerDeck(GameState.PlayerDeckCard.ARMOR)
 
-        val before = GameState.characterDeckCards(PlayerCharacter.MAGE).count { it == GameState.PlayerDeckCard.ARMOR }
-        assertTrue(before >= 1)
+        val buildSize = GameState.characterDeckCards(PlayerCharacter.THIEF).size
+        assertTrue(GameState.characterDeckCards(PlayerCharacter.THIEF).count { it.card == GameState.PlayerDeckCard.ARMOR } >= 1)
 
-        val armorItem = GridItem(ItemType.HAND_ARMOR, value = 0, gridX = 0, gridY = 0, collected = false)
-        GameState.onSpawnedItemResolved(armorItem)
+        val armorItem = GridItem(
+            ItemType.HAND_ARMOR,
+            value = 0,
+            gridX = 0,
+            gridY = 0,
+            collected = false,
+            spawnedFromPlayerDeck = true,
+        )
+        GameState.onSpawnedItemResolved(armorItem, consumePlayerArmorFromBuild = true)
 
-        val after = GameState.characterDeckCards(PlayerCharacter.MAGE).count { it == GameState.PlayerDeckCard.ARMOR }
-        assertEquals(before - 1, after)
+        assertEquals(
+            buildSize,
+            GameState.characterDeckCards(PlayerCharacter.THIEF).size,
+            "Saved build still lists the armor card after equip",
+        )
+
+        GameState.advanceToNextLevel()
+        val piles = GameState.playerDeckSnapshot().let { it.draw + it.discard }
+        assertEquals(
+            buildSize - 1,
+            piles,
+            "This run’s draw pile omits one equipped armor copy until resetForLevel",
+        )
+
+        GameState.resetForLevel(1)
+        val afterReset = GameState.playerDeckSnapshot().let { it.draw + it.discard }
+        assertEquals(buildSize, afterReset, "New attempt rebuilds the full deck from the saved build")
+    }
+
+    @Test
+    fun armor_clearedWithoutEquip_returnsToDiscard_andKeepsCharacterDeck() = withFreshState {
+        GameState.selectedPlayerCharacter = PlayerCharacter.MAGE
+        GameState.resetForLevel(1)
+        val beforeBuild = GameState.characterDeckCards(PlayerCharacter.MAGE).count { it.card == GameState.PlayerDeckCard.ARMOR }
+        assertTrue(beforeBuild >= 1)
+        val discardBefore = GameState.playerDeckSnapshot().discard
+        val armor = GridItem(
+            ItemType.HAND_ARMOR,
+            value = 1,
+            gridX = 0,
+            gridY = 0,
+            collected = false,
+            spawnedFromPlayerDeck = true,
+            playerDeckPlus = 0,
+        )
+        GameState.onSpawnedItemResolved(armor, consumePlayerArmorFromBuild = false)
+        assertEquals(
+            beforeBuild,
+            GameState.characterDeckCards(PlayerCharacter.MAGE).count { it.card == GameState.PlayerDeckCard.ARMOR },
+        )
+        assertEquals(discardBefore + 1, GameState.playerDeckSnapshot().discard)
+    }
+
+    @Test
+    fun characterDeckBuildIndicesDisplayOrder_matchesSortedDeckSize() = withFreshState {
+        val h = PlayerCharacter.KNIGHT
+        val deck = GameState.characterDeckCards(h)
+        val order = GameState.characterDeckBuildIndicesDisplayOrder(h)
+        assertEquals(deck.size, order.size)
+        assertEquals(deck.indices.toSet(), order.toSet())
+    }
+
+    @Test
+    fun removeSelectedCharacterBuildCardAtDisplayIndex_reducesBuild() = withFreshState {
+        GameState.selectedPlayerCharacter = PlayerCharacter.KNIGHT
+        val before = GameState.characterDeckCards(PlayerCharacter.KNIGHT).size
+        assertTrue(before >= 2, "Fixture should include at least two build cards")
+        assertTrue(GameState.removeSelectedCharacterBuildCardAtDisplayIndex(0))
+        assertEquals(before - 1, GameState.characterDeckCards(PlayerCharacter.KNIGHT).size)
     }
 }
 

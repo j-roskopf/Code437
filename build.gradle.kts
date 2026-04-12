@@ -19,6 +19,8 @@ javafx {
 dependencies {
     implementation("org.cosplayengine:cosplay:0.9.5")
     implementation("org.scala-lang:scala3-library_3:3.3.1")
+    implementation("com.squareup.moshi:moshi:1.15.2")
+    implementation("com.squareup.moshi:moshi-kotlin:1.15.2")
     implementation(kotlin("stdlib"))
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")

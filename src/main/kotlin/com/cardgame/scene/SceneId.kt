@@ -17,6 +17,8 @@ enum class SceneId(val id: String) {
     INVENTORY("inventory"),
     DEBUG_MENU("debugmenu"),
     SHOP("shop"),
+    /** Shop: trim one card from the hero build (arrow grid, same style as character-select deck). */
+    SHOP_DECK_TRIM("shopdecktrim"),
     SECRET_ROOM("secretroom"),
     SLOTS("slots"),
     SICBO("sicbo"),

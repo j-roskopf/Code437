@@ -28,6 +28,17 @@ class EquipmentRulesTest {
     }
 
     @Test
+    fun equipmentShortTag_usesSlotVocabulary() {
+        assertEquals("HEAD", ItemType.HELMET.equipmentShortTag())
+        assertEquals("NECK", ItemType.NECKLACE.equipmentShortTag())
+        assertEquals("CHEST", ItemType.CHEST_ARMOR.equipmentShortTag())
+        assertEquals("ARMS", ItemType.HAND_ARMOR.equipmentShortTag())
+        assertEquals("LEGS", ItemType.LEGGINGS.equipmentShortTag())
+        assertEquals("BOOT", ItemType.BOOTS_ARMOR.equipmentShortTag())
+        assertEquals("", ItemType.SHIELD.equipmentShortTag())
+    }
+
+    @Test
     fun totalEquipmentArmor_sumsAcrossEquippedSlots() = withFreshState {
         GameState.setEquippedItem(EquipmentSlot.HEAD, ItemType.HELMET)
         GameState.setEquippedItem(EquipmentSlot.NECK, ItemType.NECKLACE)

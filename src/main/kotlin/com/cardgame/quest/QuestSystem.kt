@@ -115,10 +115,28 @@ object QuestSystem {
     )
 
     /**
+     * Quests that can be completed on [level] (enemy kinds exist on that floor, or target is not a specific kind).
+     */
+    fun templatesBeatableOnFloor(candidates: List<QuestTemplate>, level: Int): List<QuestTemplate> {
+        val onFloor = LevelConfig.enemyKindsForLevel(level).toSet()
+        return candidates.filter { t ->
+            when (t.targetType) {
+                QuestTargetType.KILL_KIND -> (t.targetKind ?: return@filter false) in onFloor
+                QuestTargetType.KILL_ELITE,
+                QuestTargetType.KILL_ANY,
+                QuestTargetType.COLLECT_GOLD,
+                -> true
+            }
+        }
+    }
+
+    /**
      * Picks a random quest offer. Prefers templates not in [completedQuestIds] (new this run); if none remain,
-     * cycles among any template not in [excludeQuestIds] (re-runs allowed). [KILL_KIND] quests prefer
-     * [QuestTemplate.targetKind] on [currentLevel]; if none match, falls back to any candidate in the pool.
-     * Never returns null when at least one template is not excluded (requires [templates] non-empty).
+     * cycles among any template not in [excludeQuestIds] (re-runs allowed).
+     *
+     * Only offers quests [templatesBeatableOnFloor] for [currentLevel]. If the “prefer incomplete” pool has
+     * no floor-beatable quests (e.g. only ghost/goblin/imp left while floor 1 still has open slots), falls back
+     * to any floor-beatable quest in [notExcluded] so cycling never surfaces impossible kill-kind hunts.
      */
     fun randomOffer(
         excludeQuestIds: Set<String> = emptySet(),
@@ -128,25 +146,18 @@ object QuestSystem {
         val notExcluded = templates.filter { it.id !in excludeQuestIds }
         require(notExcluded.isNotEmpty()) { "randomOffer: all quest templates are active (log full overlap)" }
         val preferIncomplete = notExcluded.filter { it.id !in completedQuestIds }
-        val pool = if (preferIncomplete.isNotEmpty()) preferIncomplete else notExcluded
-        return pickQuestPreferringFloor(pool, currentLevel)
-    }
+        val primaryPool = if (preferIncomplete.isNotEmpty()) preferIncomplete else notExcluded
 
-    private fun pickQuestPreferringFloor(candidates: List<QuestTemplate>, currentLevel: Int): QuestTemplate {
-        val onFloor = LevelConfig.enemyKindsForLevel(currentLevel).toSet()
-        val levelFiltered = candidates.filter { t ->
-            when (t.targetType) {
-                QuestTargetType.KILL_KIND -> {
-                    val k = t.targetKind ?: return@filter false
-                    k in onFloor
-                }
-                else -> true
-            }
+        templatesBeatableOnFloor(primaryPool, currentLevel).randomOrNull()?.let { return it }
+        if (primaryPool !== notExcluded) {
+            templatesBeatableOnFloor(notExcluded, currentLevel).randomOrNull()?.let { return it }
         }
-        val effective =
-            if (levelFiltered.isNotEmpty()) levelFiltered
-            else candidates.filter { it.targetType != QuestTargetType.KILL_KIND }
-        return if (effective.isNotEmpty()) effective.random() else candidates.random()
+        val beatableAll = templatesBeatableOnFloor(templates, currentLevel).filter { it.id !in excludeQuestIds }
+        if (beatableAll.isNotEmpty()) return beatableAll.random()
+        error(
+            "No quest template is completable on level $currentLevel with current exclusions; " +
+                "add COLLECT_GOLD / KILL_ANY / KILL_ELITE or align KILL_KIND with LevelConfig.enemyKindsForLevel",
+        )
     }
 
     /**

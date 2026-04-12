@@ -30,7 +30,6 @@ object GameScene {
 
     internal enum class MoveCollision {
         NONE,
-        CHEST_LOCKED,
         CHEST_UNLOCKED,
         BOMB,
         WALL,
@@ -238,7 +237,8 @@ object GameScene {
             return if (hasKeyForTier(chest.tier)) {
                 MoveResolution(MoveCollision.CHEST_UNLOCKED, chest = chest)
             } else {
-                MoveResolution(MoveCollision.CHEST_LOCKED, chest = chest)
+                // Locked chest: walk onto the tile; feedback in player move tail ([maybeApplyLockedChestFeedbackAtPlayer]).
+                MoveResolution(MoveCollision.NONE)
             }
         }
 
@@ -257,9 +257,22 @@ object GameScene {
         return MoveResolution(MoveCollision.NONE)
     }
 
+    /** When the player ends a move standing on a closed chest without the matching key. */
+    private fun maybeApplyLockedChestFeedbackAtPlayer() {
+        val px = GameState.playerGridX
+        val py = GameState.playerGridY
+        val chest = items.find {
+            it.type == ItemType.CHEST && !it.collected && !it.chestOpened &&
+                it.gridX == px && it.gridY == py && !GameState.hasKey(it.tier)
+        } ?: return
+        chestLockedFlash.flash(0, 0)
+        GameState.startChestLockedHudFlash(chest.tier)
+    }
+
     // Collision flash effects
     private val itemFlash = FlashEffect(CPColor(80, 255, 80, "item-flash"), 10, followPlayer = true)
     private val combatFlash = FlashEffect(CPColor(255, 60, 40, "combat-flash"), 14, followPlayer = false)
+    private val chestLockedFlash = FlashEffect(CPColor(210, 150, 55, "chest-locked-flash"), 16, followPlayer = true)
 
     /** Warm pulse on each bomb cell when its countdown drops (multi-cell). */
     private val bombTickFlash = MultiCellFlashEffect(CPColor(255, 210, 72, "bomb-tick"), 18)
@@ -440,10 +453,10 @@ object GameScene {
         }
     }
 
-    private fun markItemResolved(item: GridItem) {
+    private fun markItemResolved(item: GridItem, consumePlayerArmorFromBuild: Boolean = false) {
         if (item.collected) return
         item.collected = true
-        GameState.onSpawnedItemResolved(item)
+        GameState.onSpawnedItemResolved(item, consumePlayerArmorFromBuild)
     }
 
     private fun markEnemyResolved(enemy: EnemyCard) {
@@ -725,6 +738,10 @@ object GameScene {
     private fun px(ch: Char, fg: CPColor, bg: CPColor): CPPixel =
         CPPixel(ch, fg, Option.apply(bg), 0)
 
+    /** Foreground only; background left unset so the existing canvas cell shows through. */
+    private fun pxFgOnly(ch: Char, fg: CPColor): CPPixel =
+        CPPixel(ch, fg, Option.empty(), 0)
+
     private fun syncClusterLayout(canv: CPCanvas) {
         val qc = GameState.questHudLines().size
         GridConfig.updateClusterLayout(canv.width(), canv.height(), qc)
@@ -876,42 +893,84 @@ object GameScene {
 
     /**
      * Writes [text] vertically along one column of the card border, centered in the card height.
-     * Each character occupies one row.
+     * Each character occupies one row (corners excluded so '+' corners stay intact).
      */
-    private fun drawVerticalText(canv: CPCanvas, x: Int, sy: Int, h: Int, z: Int, text: String, color: CPColor) {
+    private fun drawVerticalText(
+        canv: CPCanvas,
+        x: Int,
+        sy: Int,
+        h: Int,
+        z: Int,
+        text: String,
+        color: CPColor,
+        bg: CPColor? = null,
+    ) {
         val startY = sy + (h - text.length).coerceAtLeast(0) / 2
         for ((i, ch) in text.withIndex()) {
             val y = startY + i
             if (y > sy && y < sy + h - 1) {
-                canv.drawPixel(px(ch, color), x, y, z)
+                val pixel =
+                    if (bg != null) px(ch, color, bg) else pxFgOnly(ch, color)
+                canv.drawPixel(pixel, x, y, z)
             }
         }
     }
 
-    private fun drawDeckFaceDown(canv: CPCanvas, gc: GridConfig) {
+    /**
+     * One vertical border column: draw pile vs discard, with counts. Prefers full words when they fit
+     * inside the interior border height ([maxInteriorChars]); otherwise short **D:** / **H:** (heap) keys.
+     * If even that is too long, keeps as many trailing count digits as fit.
+     */
+    private fun verticalDeckBorderLabel(isDrawPile: Boolean, count: Int, maxInteriorChars: Int): String {
+        val n = count.toString()
+        val primary =
+            if (isDrawPile) {
+                val full = "DRAW:$n"
+                if (full.length <= maxInteriorChars) full else "D:$n"
+            } else {
+                val full = "DISCARD:$n"
+                if (full.length <= maxInteriorChars) full else "H:$n"
+            }
+        if (primary.length <= maxInteriorChars) return primary
+        return n.takeLast(maxInteriorChars.coerceAtLeast(1))
+    }
+
+    /**
+     * Vertical draw/discard counts on the true left/right border columns of each deck card.
+     * Rendered from the HUD pass at [labelZ] **above** the HUD segment frames (z≈14) and titles (z≈15),
+     * so glyphs replace the border `|` cells and stay visible. Glyphs use no fill color so the frame
+     * / deck back shows through behind each letter.
+     */
+    private fun drawDeckPileBorderLabels(canv: CPCanvas, gc: GridConfig, labelZ: Int) {
         val w = gc.CELL_WIDTH
         val h = gc.CELL_HEIGHT
-        val labelZ = 1
+        val maxInterior = (h - 2).coerceAtLeast(1)
+        val ex = gc.deckScreenX
 
         val enemySnap = GameState.enemyDeckSnapshot()
-        val ex = gc.deckScreenX
         val ey = gc.enemyDeckScreenY
-        drawDeckCardBackAt(canv, ex, ey, w, h, 0)
-        val enemyDrawLabel = "DRAW: ${enemySnap.draw}"
-        val enemyDiscLabel = "DISCARD: ${enemySnap.discard}"
+        val enemyDrawLabel = verticalDeckBorderLabel(isDrawPile = true, enemySnap.draw, maxInterior)
+        val enemyDiscLabel = verticalDeckBorderLabel(isDrawPile = false, enemySnap.discard, maxInterior)
         val enemyLabelColor = CPColor.C_INDIAN_RED1()
         drawVerticalText(canv, ex, ey, h, labelZ, enemyDrawLabel, enemyLabelColor)
         drawVerticalText(canv, ex + w - 1, ey, h, labelZ, enemyDiscLabel, enemyLabelColor)
 
         val playerSnap = GameState.playerDeckSnapshot()
-        val px = gc.deckScreenX
         val py = gc.playerDeckScreenY
-        drawDeckCardBackAt(canv, px, py, w, h, 0)
-        val playerDrawLabel = "DRAW: ${playerSnap.draw}"
-        val playerDiscLabel = "DISCARD: ${playerSnap.discard}"
+        val playerDrawLabel = verticalDeckBorderLabel(isDrawPile = true, playerSnap.draw, maxInterior)
+        val playerDiscLabel = verticalDeckBorderLabel(isDrawPile = false, playerSnap.discard, maxInterior)
         val playerLabelColor = CPColor.C_GREEN1()
-        drawVerticalText(canv, px, py, h, labelZ, playerDrawLabel, playerLabelColor)
-        drawVerticalText(canv, px + w - 1, py, h, labelZ, playerDiscLabel, playerLabelColor)
+        drawVerticalText(canv, ex, py, h, labelZ, playerDrawLabel, playerLabelColor)
+        drawVerticalText(canv, ex + w - 1, py, h, labelZ, playerDiscLabel, playerLabelColor)
+    }
+
+    /** Face-down deck backs only; border counts are drawn in [createHudSprite] via [drawDeckPileBorderLabels]. */
+    private fun drawDeckFaceDown(canv: CPCanvas, gc: GridConfig) {
+        val w = gc.CELL_WIDTH
+        val h = gc.CELL_HEIGHT
+        val ex = gc.deckScreenX
+        drawDeckCardBackAt(canv, ex, gc.enemyDeckScreenY, w, h, 0)
+        drawDeckCardBackAt(canv, ex, gc.playerDeckScreenY, w, h, 0)
     }
 
     private fun maxInteriorClipHalf(w: Int): Int = (w - 2) / 2
@@ -1048,7 +1107,10 @@ object GameScene {
                     GameState.registerEnemyDefeat(enemy.kind, enemy.isElite)
                     RunStats.recordEnemyKill(enemy.kind, enemy.isElite)
                     markEnemyResolved(enemy)
-                    if (enemy.isElite) dropEliteKeyAt(nx, ny)
+                    if (enemy.isElite) {
+                        GameState.onEliteEnemyDefeated()
+                        dropEliteKeyAt(nx, ny)
+                    }
                 }
             }
             for (it in items) {
@@ -1138,9 +1200,14 @@ object GameScene {
             item.type == ItemType.BOMB -> "▶ ${item.bombTicks}"
             item.type == ItemType.WALL -> "BRK ${item.wallHp.coerceAtLeast(1)}"
             item.type == ItemType.QUEST -> "STEP"
-            item.type == ItemType.REST -> "HEAL"
+            item.type == ItemType.REST ->
+                if (item.value > 0) "HEAL+${item.value}" else "HEAL"
             item.type == ItemType.SHOP || item.type == ItemType.GAMBLING -> "STEP"
-            item.type.equipmentSlot() != null -> "EQUIP"
+            item.type.equipmentSlot() != null ->
+                hudLineFit(
+                    "+${item.type.equipmentArmorValue() + item.playerDeckPlus} ${item.type.equipmentShortTag()}",
+                    cw - 2,
+                )
             else -> "+${item.value}"
         }
         val labelRow = sy + ch - 2
@@ -1308,8 +1375,19 @@ object GameScene {
         }
     }
 
+    private fun inventoryGoldLabelScreenY(gc: GridConfig): Int {
+        val top = gc.inventoryPanelTopY()
+        val lineCount = 7
+        val goldIdx = 5
+        val y0 = top + (gc.CELL_HEIGHT - lineCount).coerceAtLeast(0) / 2
+        return y0 + goldIdx
+    }
+
+    private fun inventoryCardCenterX(gc: GridConfig): Int = gc.clusterOriginX + gc.CELL_WIDTH / 2
+
     /**
      * LV/ATK/SHD/SCORE/GOLD/KEYS moved from the main HUD; same frame as [drawSpawnQueueStrip].
+     * Elite gold pickup flashes the GOLD line ([GameState.moneyFlashText]).
      */
     private fun drawInventoryCard(canv: CPCanvas, gc: GridConfig) {
         val top = gc.inventoryPanelTopY()
@@ -1319,20 +1397,37 @@ object GameScene {
         val z = 2
         val textMax = gc.CELL_WIDTH.coerceAtLeast(8)
         val goal = LevelConfig.targetScore(GameState.currentLevel)
+        val moneyFlash = GameState.moneyFlashText()
+        val goldLine = if (moneyFlash != null) {
+            hudLineFit("GOLD ${GameState.money}  ($moneyFlash)", textMax)
+        } else {
+            hudLineFit("GOLD ${GameState.money}", textMax)
+        }
+        val chestLockedFlash = GameState.chestLockedFlashText()
+        val keysBase = "KEYS ${GameState.keysBronze}B ${GameState.keysSilver}S ${GameState.keysGold}G"
+        val keysLine = if (chestLockedFlash != null) {
+            hudLineFit("$keysBase  ($chestLockedFlash)", textMax)
+        } else {
+            hudLineFit(keysBase, textMax)
+        }
         val lines = listOf(
             hudLineFit("INVENTORY", textMax),
             hudLineFit("LV ${GameState.currentLevel} HP:${GameState.playerHealth}", textMax),
             hudLineFit("ATK ${GameState.playerAttackDisplay()}", textMax),
             hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax),
             hudLineFit("SCORE ${GameState.score}/$goal", textMax),
-            hudLineFit("GOLD ${GameState.money}", textMax),
-            hudLineFit("KEYS ${GameState.keysBronze}B ${GameState.keysSilver}S ${GameState.keysGold}G", textMax),
+            goldLine,
+            keysLine,
         )
         val y0 = top + (gc.CELL_HEIGHT - lines.size).coerceAtLeast(0) / 2
+        val goldLineIdx = 5
+        val keysLineIdx = 6
         for ((i, ln) in lines.withIndex()) {
-            val col = when (i) {
-                0 -> CPColor.C_STEEL_BLUE1()
-                4, 5 -> CPColor.C_STEEL_BLUE1()
+            val col = when {
+                i == 0 -> CPColor.C_STEEL_BLUE1()
+                i == goldLineIdx && moneyFlash != null -> CPColor.C_GOLD1()
+                i == keysLineIdx && chestLockedFlash != null -> CPColor.C_ORANGE1()
+                i == 4 || i == goldLineIdx -> CPColor.C_STEEL_BLUE1()
                 else -> CPColor.C_GREY70()
             }
             canv.drawString(spawnPanelLineX(gc, ln.length), y0 + i, z, ln, col, bg)
@@ -1564,9 +1659,6 @@ object GameScene {
                     hasKeyForTier = { tier -> GameState.hasKey(tier) }
                 )
                 when (moveResolution.collision) {
-                    MoveCollision.CHEST_LOCKED -> {
-                        return
-                    }
                     MoveCollision.CHEST_UNLOCKED -> {
                         val chest = moveResolution.chest ?: return
                         GameState.tryConsumeKey(chest.tier)
@@ -1661,6 +1753,7 @@ object GameScene {
                             return
                         }
                         if (item.type == ItemType.REST) {
+                            GameState.setPendingRestTileBonusHeal(item.value)
                             markItemResolved(item)
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
@@ -1671,7 +1764,8 @@ object GameScene {
                             ctx.switchScene(SceneId.REST, false)
                             return
                         }
-                        markItemResolved(item)
+                        val consumeArmorFromBuild = item.type.equipmentSlot() != null
+                        markItemResolved(item, consumePlayerArmorFromBuild = consumeArmorFromBuild)
                         val effect = resolveItemEffect(item.type, item.value, item.tier)
                         GameState.playerHealth += effect.healthDelta
                         GameState.playerAttack += effect.attackDelta
@@ -1679,7 +1773,7 @@ object GameScene {
                         effect.keyTierToAdd?.let { GameState.addKey(it) }
                         effect.equipType?.let { eq ->
                             val slot = eq.equipmentSlot() ?: return@let
-                            GameState.setEquippedItem(slot, eq)
+                            GameState.setEquippedItem(slot, eq, item.playerDeckPlus)
                         }
                         itemFlash.flash(newX, newY)
                         confetti.spawn(newX, newY)
@@ -1729,6 +1823,7 @@ object GameScene {
                             RunStats.recordEnemyKill(enemy.kind, enemy.isElite)
                             GameState.addScorePoints(if (enemy.isElite) 40 else 25)
                             if (wasElite) {
+                                GameState.onEliteEnemyDefeated()
                                 // Keep the player in their original tile so the elite cell holds the dropped key card.
                                 GameState.playerGridX = (newX - dx).coerceIn(0, GridConfig.COLS - 1)
                                 GameState.playerGridY = (newY - dy).coerceIn(0, GridConfig.ROWS - 1)
@@ -1780,6 +1875,7 @@ object GameScene {
 
                 val px = GameState.playerGridX
                 val py = GameState.playerGridY
+                maybeApplyLockedChestFeedbackAtPlayer()
                 val postMove = planPostMoveFlow(prevX, prevY, px, py, dx, dy)
                 if (applyPostMoveSlidingAndBombs(ctx, postMove, prevX, prevY)) return
 
@@ -1803,6 +1899,7 @@ object GameScene {
                     }
                     PostMoveSceneRoute.SHOP -> {
                         GameState.shopDismissAction = ShopDismissAction.SwitchTo(SceneId.GAME)
+                        kotlin.runCatching { ctx.deleteScene(SceneId.SHOP_DECK_TRIM) }
                         kotlin.runCatching { ctx.deleteScene(SceneId.SHOP) }
                         ctx.addScene(ShopScene.create(), false, false, false)
                         ctx.switchScene(SceneId.SHOP, false)
@@ -1944,6 +2041,10 @@ object GameScene {
                     CPColor.C_GREEN1(),
                     bg,
                 )
+
+                // Above hud frame (14), titles (15), and hud confetti (17): pile counts on deck borders.
+                val deckBorderLabelZ = 18
+                drawDeckPileBorderLabels(canv, GridConfig, deckBorderLabelZ)
             }
         }
     }
@@ -1959,6 +2060,8 @@ object GameScene {
                 hudConfetti.update()
                 explosionFx.update()
                 GameState.tickQuestHudFlash()
+                GameState.tickMoneyHudFlash()
+                GameState.tickChestLockedHudFlash()
                 if (GameState.consumeHudQuestCelebrate()) {
                     val canv = ctx.canvas
                     syncClusterLayout(canv)
@@ -1970,12 +2073,19 @@ object GameScene {
                     )
                     hudConfetti.spawnScreen(centerX, centerY)
                 }
+                if (GameState.consumeHudMoneyCelebrate()) {
+                    val canv = ctx.canvas
+                    syncClusterLayout(canv)
+                    val gc = GridConfig
+                    hudConfetti.spawnScreen(inventoryCardCenterX(gc), inventoryGoldLabelScreenY(gc))
+                }
             }
 
             override fun render(ctx: CPSceneObjectContext) {
                 val canv = ctx.canvas
                 itemFlash.drawFlash(canv)
                 combatFlash.drawFlash(canv)
+                chestLockedFlash.drawFlash(canv)
                 bombTickFlash.drawFlash(canv)
                 confetti.draw(canv)
                 hudConfetti.draw(canv)

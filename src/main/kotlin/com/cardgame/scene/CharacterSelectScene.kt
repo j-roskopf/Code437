@@ -5,9 +5,8 @@ import com.cardgame.art.AsciiArt
 import com.cardgame.art.CardArt
 import com.cardgame.game.GameState
 import com.cardgame.game.GridConfig
-import com.cardgame.game.GridItem
-import com.cardgame.game.ItemType
 import com.cardgame.game.PlayerCharacter
+import com.cardgame.ui.DeckCardRender
 import org.cosplay.*
 import scala.Option
 
@@ -119,8 +118,8 @@ object CharacterSelectScene {
     }
 
     /** Display order only; persistent deck draw order in [GameState] is unchanged. */
-    private fun characterDeckSortedForDisplay(hero: PlayerCharacter): List<GameState.PlayerDeckCard> =
-        GameState.characterDeckCards(hero).sortedBy { it.ordinal }
+    private fun characterDeckSortedForDisplay(hero: PlayerCharacter): List<GameState.DeckCardInstance> =
+        GameState.characterDeckCardsSortedForDisplay(hero)
 
     fun create(): CPScene {
         val shaders = emptyScalaSeq()
@@ -188,28 +187,14 @@ object CharacterSelectScene {
                 val startIdx = deckPageState.page * layout.cardsPerPage
                 val endIdx = minOf(cards.size, startIdx + layout.cardsPerPage)
                 for (idx in startIdx until endIdx) {
-                    val card = cards[idx]
+                    val entry = cards[idx]
                     val i = idx - startIdx
                     val col = i % layout.cols
                     val row = i / layout.cols
                     val sx = layout.gridStartX + col * (CARD_W + gap)
                     val sy = layout.deckAreaTop + row * layout.rowHeight
-                    val type = GameState.deckCardToItemType(card)
-                    val kt = card.keyTier()
-                    val previewItem =
-                        if (kt != null) {
-                            GridItem(ItemType.KEY, 0, 0, 0, artVariant = kt.ordinal, tier = kt)
-                        } else {
-                            GridItem(type, 0, 0, 0)
-                        }
-                    val border = CardArt.itemTileColor(previewItem)
-                    drawCardBorder(canv, sx, sy, CARD_W, CARD_H, 1, border)
-                    val nm = card.label.take(CARD_W - 2)
-                    canv.drawString(sx + (CARD_W - nm.length) / 2, sy + 1, 2, nm, border, Option.empty())
-                    val art =
-                        if (kt != null) CardArt.itemSpriteForType(ItemType.KEY, kt.ordinal)
-                        else CardArt.itemSpriteForType(type)
-                    drawArtInCard(canv, art, sx, sy, border, 2)
+                    val border = CardArt.itemTileColor(DeckCardRender.previewGridItem(entry))
+                    DeckCardRender.drawDeckTile(canv, sx, sy, 2, entry, border, BG_COLOR, footerOverride = null)
                 }
             }
         }
@@ -251,6 +236,7 @@ object CharacterSelectScene {
                         deckPageState.page = (deckPageState.page + 1).coerceAtMost((lay.totalPages - 1).coerceAtLeast(0))
                     }
                     KEY_SPACE -> {
+                        GameState.clearRunScopedArmorDrawSuppression()
                         GameState.selectedPlayerCharacter = options[cursorIdx()]
                         GameState.persistDecksIfEnabled()
                         ctx.switchScene(SceneId.MENU, false)

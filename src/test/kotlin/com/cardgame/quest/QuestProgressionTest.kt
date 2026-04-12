@@ -134,4 +134,41 @@ class QuestProgressionTest {
             }
         }
     }
+
+    @Test
+    fun randomOffer_floor1_killKindOnlySpawnsOnThatFloor() = withFreshState {
+        GameState.resetForLevel(1)
+        val onFloor = LevelConfig.enemyKindsForLevel(1).toSet()
+        repeat(400) {
+            val o = QuestSystem.randomOffer(
+                excludeQuestIds = emptySet(),
+                completedQuestIds = emptySet(),
+                currentLevel = 1,
+            )
+            if (o.targetType == QuestTargetType.KILL_KIND) {
+                assertTrue(o.targetKind in onFloor, "${o.id} targets ${o.targetKind}, not on floor 1")
+            }
+        }
+    }
+
+    @Test
+    fun randomOffer_afterCompletingFloor1KillQuests_neverOffersOffFloorKillKind() = withFreshState {
+        GameState.resetForLevel(1)
+        val byId = QuestSystem.templates.associateBy { it.id }
+        GameState.acceptQuest(byId.getValue("rat_hunter"))
+        repeat(3) { GameState.registerEnemyDefeat(EnemyKind.RAT, elite = false) }
+        GameState.acceptQuest(byId.getValue("slime_cleanup"))
+        repeat(4) { GameState.registerEnemyDefeat(EnemyKind.SLIME, elite = false) }
+        val onFloor = LevelConfig.enemyKindsForLevel(1).toSet()
+        repeat(250) {
+            val o = QuestSystem.randomOffer(
+                excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
+                completedQuestIds = GameState.completedQuestIds(),
+                currentLevel = 1,
+            )
+            if (o.targetType == QuestTargetType.KILL_KIND) {
+                assertTrue(o.targetKind in onFloor, "${o.id} ${o.targetKind} not on floor 1")
+            }
+        }
+    }
 }

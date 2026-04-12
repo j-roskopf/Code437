@@ -62,7 +62,7 @@ class GameScenePhase2Test {
     }
 
     @Test
-    fun resolveMoveCollision_chestLockedWithoutKey() {
+    fun resolveMoveCollision_chestPassableWithoutKey_softBlock() {
         val chest = TestFixtures.item(ItemType.CHEST, x = 2, y = 1, chestOpened = false, tier = KeyTier.SILVER)
         val res = GameScene.resolveMoveCollision(
             newX = 2,
@@ -70,7 +70,7 @@ class GameScenePhase2Test {
             items = listOf(chest),
             hasKeyForTier = { false }
         )
-        assertEquals(GameScene.MoveCollision.CHEST_LOCKED, res.collision)
+        assertEquals(GameScene.MoveCollision.NONE, res.collision)
     }
 
     @Test
