@@ -137,12 +137,15 @@ object QuestSystem {
      * Only offers quests [templatesBeatableOnFloor] for [currentLevel]. If the “prefer incomplete” pool has
      * no floor-beatable quests (e.g. only ghost/goblin/imp left while floor 1 still has open slots), falls back
      * to any floor-beatable quest in [notExcluded] so cycling never surfaces impossible kill-kind hunts.
+     *
+     * Returns null when every template that is [templatesBeatableOnFloor] for [currentLevel] is in
+     * [excludeQuestIds] (e.g. floor 1 has only five beatable archetypes and the log already holds all five).
      */
     fun randomOffer(
         excludeQuestIds: Set<String> = emptySet(),
         completedQuestIds: Set<String> = emptySet(),
         currentLevel: Int = 1,
-    ): QuestTemplate {
+    ): QuestTemplate? {
         val notExcluded = templates.filter { it.id !in excludeQuestIds }
         require(notExcluded.isNotEmpty()) { "randomOffer: all quest templates are active (log full overlap)" }
         val preferIncomplete = notExcluded.filter { it.id !in completedQuestIds }
@@ -153,11 +156,7 @@ object QuestSystem {
             templatesBeatableOnFloor(notExcluded, currentLevel).randomOrNull()?.let { return it }
         }
         val beatableAll = templatesBeatableOnFloor(templates, currentLevel).filter { it.id !in excludeQuestIds }
-        if (beatableAll.isNotEmpty()) return beatableAll.random()
-        error(
-            "No quest template is completable on level $currentLevel with current exclusions; " +
-                "add COLLECT_GOLD / KILL_ANY / KILL_ELITE or align KILL_KIND with LevelConfig.enemyKindsForLevel",
-        )
+        return beatableAll.randomOrNull()
     }
 
     /**

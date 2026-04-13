@@ -1812,17 +1812,12 @@ object GameScene {
                         if (item.type == ItemType.SPIKES || item.type == ItemType.BOMB || item.type == ItemType.WALL) continue
                         if (item.type == ItemType.QUEST) {
                             markItemResolved(item)
-                            if (GameState.canAcceptNewQuest()) {
-                                GameState.pendingQuestOffer = QuestSystem.randomOffer(
-                                    excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
-                                    completedQuestIds = GameState.completedQuestIds(),
-                                    currentLevel = GameState.currentLevel,
-                                )
-                                GameState.pendingQuestAtCapacity = false
-                            } else {
-                                GameState.pendingQuestOffer = null
-                                GameState.pendingQuestAtCapacity = true
-                            }
+                            GameState.pendingQuestOffer = QuestSystem.randomOffer(
+                                excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
+                                completedQuestIds = GameState.completedQuestIds(),
+                                currentLevel = GameState.currentLevel,
+                            )
+                            GameState.pendingQuestAtCapacity = !GameState.canAcceptNewQuest()
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
                             val pmQuest = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
@@ -2071,7 +2066,8 @@ object GameScene {
                     drawCardBorder(canv, cx, sy, cw, oneThird, 14, hudFrameCol)
                 }
 
-                val debugActive = GameState.debugInvincible || GameState.debugNoScore
+                val debugActive =
+                    GameState.debugInvincible || GameState.debugNoScore || GameState.debugLoopEnemyDeck
                 val debugIdx = if (debugActive) 1 else -1
                 val middleLines = buildList {
                     add(hudLineFit("CARD CRAWLER", textMax))
@@ -2079,6 +2075,7 @@ object GameScene {
                         val parts = buildList {
                             if (GameState.debugInvincible) add("invuln")
                             if (GameState.debugNoScore) add("no score")
+                            if (GameState.debugLoopEnemyDeck) add("deck loop")
                         }
                         add(hudLineFit("DEBUG ${parts.joinToString(", ")}", textMax))
                     }
@@ -2147,7 +2144,7 @@ object GameScene {
                     val cw = GridConfig.HUD_COLUMN_WIDTH
                     val centerX = cx + (cw + 1) / 2
                     val centerY = GridConfig.questHudTextScreenRow(
-                        GameState.debugInvincible || GameState.debugNoScore,
+                        GameState.debugInvincible || GameState.debugNoScore || GameState.debugLoopEnemyDeck,
                     )
                     hudConfetti.spawnScreen(centerX, centerY)
                 }

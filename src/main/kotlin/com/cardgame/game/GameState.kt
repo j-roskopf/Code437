@@ -263,6 +263,12 @@ object GameState {
     /** From the Z-key debug menu: enemy kills do not increase [score]. */
     var debugNoScore: Boolean = false
 
+    /**
+     * From the Z-key debug menu: when the enemy draw pile is empty, shuffle the enemy discard pile back
+     * into the draw pile so the floor can keep spawning (debug only; off by default).
+     */
+    var debugLoopEnemyDeck: Boolean = false
+
     /** How the left-column spawn queue is drawn; cycle from the Z debug menu with [3]. Panel = one grid cell. */
     enum class SpawnQueueHudStyle {
         /** NEXT + [Enemy] / [Player] lines, centered in the card panel. */
@@ -597,6 +603,7 @@ object GameState {
         rebuildEnemyDeckForCurrentLevel()
         debugInvincible = false
         debugNoScore = false
+        debugLoopEnemyDeck = false
     }
 
     fun addMoney(amount: Int) {
@@ -796,8 +803,14 @@ object GameState {
         return spawnQueue.toList()
     }
 
-    /** True while the enemy deck still has cards to draw for spawns (discard is not recycled mid-floor). */
-    private fun enemyDeckHasDrawPileCards(): Boolean = enemyDeckDraw.isNotEmpty()
+    /**
+     * True while the enemy deck can still supply draws for spawns.
+     * With [debugLoopEnemyDeck], the discard pile counts too so [refillSpawnQueue] keeps scheduling
+     * enemy draws until [drawEnemyDeckCard] recycles discard back into the draw pile.
+     */
+    private fun enemyDeckHasDrawPileCards(): Boolean =
+        enemyDeckDraw.isNotEmpty() ||
+            (debugLoopEnemyDeck && enemyDeckDiscard.isNotEmpty())
 
     /** True while the player deck draw pile can still supply a grid spawn (discard is not recycled mid-floor). */
     private fun playerDeckHasDrawPileCards(): Boolean = playerDeckDraw.isNotEmpty()
@@ -985,11 +998,21 @@ object GameState {
     /**
      * Floor clears when every enemy-unit from the enemy deck has been defeated and nothing alive remains.
      * @param gridHasLiveEnemy true if any [EnemyCard] on the grid has [EnemyCard.defeated] == false.
+     *
+     * When [debugLoopEnemyDeck] is on, this never returns true so the run cannot auto-advance to
+     * level complete (endless floor for playtesting); turn the toggle off to finish the floor normally.
      */
-    fun isFloorClearByEnemyElimination(gridHasLiveEnemy: Boolean): Boolean =
-        enemyFloorEnemyDefeats >= enemyFloorEnemyQuota && !gridHasLiveEnemy
+    fun isFloorClearByEnemyElimination(gridHasLiveEnemy: Boolean): Boolean {
+        if (debugLoopEnemyDeck) return false
+        return enemyFloorEnemyDefeats >= enemyFloorEnemyQuota && !gridHasLiveEnemy
+    }
 
     private fun drawEnemyDeckCard(): EnemyDeckCard {
+        if (enemyDeckDraw.isEmpty() && debugLoopEnemyDeck && enemyDeckDiscard.isNotEmpty()) {
+            enemyDeckDraw.addAll(enemyDeckDiscard)
+            enemyDeckDiscard.clear()
+            enemyDeckDraw.shuffle()
+        }
         if (enemyDeckDraw.isEmpty()) {
             return EnemyDeckCard(deckExhausted = true)
         }
@@ -1442,10 +1465,10 @@ object GameState {
     }
 
     fun acceptQuest(template: QuestTemplate) {
-        pendingQuestOffer = null
-        pendingQuestAtCapacity = false
         if (activeQuests.any { it.template.id == template.id }) return
         if (activeQuests.size >= MAX_CONCURRENT_QUESTS) return
+        pendingQuestOffer = null
+        pendingQuestAtCapacity = false
         completedQuestIds.remove(template.id)
         activeQuests.add(
             ActiveQuest(
@@ -1459,6 +1482,42 @@ object GameState {
     fun denyPendingQuest() {
         pendingQuestOffer = null
         pendingQuestAtCapacity = false
+    }
+
+    /**
+     * Quest board only: after abandoning a slot, roll [QuestSystem.randomOffer] when there is room but no
+     * [pendingQuestOffer] (e.g. the tile rolled null while the log was full and every beatable template was already active).
+     */
+    fun refreshPendingQuestOfferAfterBoardAbandon() {
+        if (!canAcceptNewQuest()) return
+        if (pendingQuestOffer != null) return
+        if (hasCompletedAllQuestTemplates()) return
+        pendingQuestOffer = QuestSystem.randomOffer(
+            excludeQuestIds = activeIncompleteQuestTemplateIds(),
+            completedQuestIds = completedQuestIds(),
+            currentLevel = currentLevel,
+        )
+    }
+
+    /** Drops one accepted quest by index in [activeQuests] order. */
+    fun dropActiveQuestAt(index: Int): Boolean {
+        if (index !in activeQuests.indices) return false
+        activeQuests.removeAt(index)
+        pendingQuestAtCapacity = false
+        updateQuestProgress()
+        return true
+    }
+
+    /**
+     * Replaces one accepted quest with [pendingQuestOffer] by dropping the active quest at [index].
+     * Returns `true` only when both drop and accept succeed.
+     */
+    fun dropActiveQuestAndAcceptPending(index: Int): Boolean {
+        val offer = pendingQuestOffer ?: return false
+        if (!dropActiveQuestAt(index)) return false
+        if (!canAcceptNewQuest()) return false
+        acceptQuest(offer)
+        return true
     }
 
     fun completedQuestIds(): Set<String> = completedQuestIds.toSet()

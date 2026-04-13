@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class QuestProgressionTest {
@@ -81,12 +82,13 @@ class QuestProgressionTest {
         GameState.resetForLevel(2)
         val onFloor = LevelConfig.enemyKindsForLevel(2).toSet()
         repeat(200) {
-            val o = QuestSystem.randomOffer(
-                excludeQuestIds = emptySet(),
-                completedQuestIds = emptySet(),
-                currentLevel = 2,
+            val o = requireNotNull(
+                QuestSystem.randomOffer(
+                    excludeQuestIds = emptySet(),
+                    completedQuestIds = emptySet(),
+                    currentLevel = 2,
+                ),
             )
-            assertNotNull(o)
             if (o.targetType == QuestTargetType.KILL_KIND) {
                 assertTrue(
                     o.targetKind in onFloor,
@@ -136,14 +138,127 @@ class QuestProgressionTest {
     }
 
     @Test
+    fun dropActiveQuestAt_removesQuestWithoutAcceptingOffer() = withFreshState {
+        val rat = QuestSystem.templates.first { it.id == "rat_hunter" }
+        GameState.acceptQuest(rat)
+        assertEquals(1, GameState.activeQuests.size)
+        assertTrue(GameState.dropActiveQuestAt(0))
+        assertTrue(GameState.activeQuests.isEmpty())
+    }
+
+    @Test
+    fun atCapacity_abandonSlotThenAccept_offerRemainsUntilAccepted() = withFreshState {
+        val ids = listOf(
+            "rat_hunter",
+            "slime_cleanup",
+            "first_bloodline",
+            "skirmisher",
+            "coin_chaser",
+            "haunted_clearout",
+        )
+        val byId = QuestSystem.templates.associateBy { it.id }
+        for (id in ids.take(GameState.MAX_CONCURRENT_QUESTS)) {
+            GameState.acceptQuest(byId.getValue(id))
+        }
+        val pending = byId.getValue(ids.last())
+        GameState.pendingQuestOffer = pending
+        GameState.pendingQuestAtCapacity = true
+
+        assertTrue(GameState.dropActiveQuestAt(0))
+        assertFalse(GameState.pendingQuestAtCapacity)
+        assertEquals(pending.id, GameState.pendingQuestOffer?.id)
+        assertTrue(GameState.canAcceptNewQuest())
+
+        GameState.acceptQuest(pending)
+        assertEquals(GameState.MAX_CONCURRENT_QUESTS, GameState.activeQuests.size)
+        assertTrue(GameState.activeQuests.any { it.template.id == pending.id })
+        assertEquals(null, GameState.pendingQuestOffer)
+    }
+
+    @Test
+    fun dropActiveQuestAndAcceptPending_swapsQuestWhenAtCapacity() = withFreshState {
+        val ids = listOf(
+            "rat_hunter",
+            "slime_cleanup",
+            "first_bloodline",
+            "skirmisher",
+            "coin_chaser",
+            "haunted_clearout",
+        )
+        val byId = QuestSystem.templates.associateBy { it.id }
+        for (id in ids.take(GameState.MAX_CONCURRENT_QUESTS)) {
+            GameState.acceptQuest(byId.getValue(id))
+        }
+        val droppedId = GameState.activeQuests.first().template.id
+        val pending = byId.getValue(ids.last())
+        GameState.pendingQuestOffer = pending
+        GameState.pendingQuestAtCapacity = true
+
+        assertTrue(GameState.dropActiveQuestAndAcceptPending(0))
+        assertEquals(GameState.MAX_CONCURRENT_QUESTS, GameState.activeQuests.size)
+        assertTrue(GameState.activeQuests.any { it.template.id == pending.id })
+        assertFalse(GameState.activeQuests.any { it.template.id == droppedId })
+        assertFalse(GameState.pendingQuestAtCapacity)
+        assertEquals(null, GameState.pendingQuestOffer)
+    }
+
+    @Test
+    fun refreshPendingQuestOfferAfterBoardAbandon_rollsWhenTileHadNoOfferAtFull() = withFreshState {
+        GameState.resetForLevel(1)
+        val floor1BeatableIds = setOf(
+            "rat_hunter",
+            "slime_cleanup",
+            "first_bloodline",
+            "skirmisher",
+            "coin_chaser",
+        )
+        val byId = QuestSystem.templates.associateBy { it.id }
+        for (id in floor1BeatableIds) {
+            GameState.acceptQuest(byId.getValue(id))
+        }
+        GameState.pendingQuestOffer = null
+        GameState.pendingQuestAtCapacity = true
+
+        assertTrue(GameState.dropActiveQuestAt(0))
+        GameState.refreshPendingQuestOfferAfterBoardAbandon()
+        assertNotNull(GameState.pendingQuestOffer)
+    }
+
+    @Test
+    fun randomOffer_returnsNullWhenAllFloorBeatableTemplatesAreActive() = withFreshState {
+        GameState.resetForLevel(1)
+        val floor1BeatableIds = setOf(
+            "rat_hunter",
+            "slime_cleanup",
+            "first_bloodline",
+            "skirmisher",
+            "coin_chaser",
+        )
+        val byId = QuestSystem.templates.associateBy { it.id }
+        for (id in floor1BeatableIds) {
+            GameState.acceptQuest(byId.getValue(id))
+        }
+        assertEquals(GameState.MAX_CONCURRENT_QUESTS, GameState.activeQuests.size)
+        assertNull(
+            QuestSystem.randomOffer(
+                excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
+                completedQuestIds = GameState.completedQuestIds(),
+                currentLevel = 1,
+            ),
+        )
+    }
+
+    @Test
     fun randomOffer_floor1_killKindOnlySpawnsOnThatFloor() = withFreshState {
         GameState.resetForLevel(1)
         val onFloor = LevelConfig.enemyKindsForLevel(1).toSet()
         repeat(400) {
-            val o = QuestSystem.randomOffer(
-                excludeQuestIds = emptySet(),
-                completedQuestIds = emptySet(),
-                currentLevel = 1,
+            val o = requireNotNull(
+                QuestSystem.randomOffer(
+                    excludeQuestIds = emptySet(),
+                    completedQuestIds = emptySet(),
+                    currentLevel = 1,
+                ),
             )
             if (o.targetType == QuestTargetType.KILL_KIND) {
                 assertTrue(o.targetKind in onFloor, "${o.id} targets ${o.targetKind}, not on floor 1")
@@ -161,10 +276,12 @@ class QuestProgressionTest {
         repeat(4) { GameState.registerEnemyDefeat(EnemyKind.SLIME, elite = false) }
         val onFloor = LevelConfig.enemyKindsForLevel(1).toSet()
         repeat(250) {
-            val o = QuestSystem.randomOffer(
-                excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
-                completedQuestIds = GameState.completedQuestIds(),
-                currentLevel = 1,
+            val o = requireNotNull(
+                QuestSystem.randomOffer(
+                    excludeQuestIds = GameState.activeIncompleteQuestTemplateIds(),
+                    completedQuestIds = GameState.completedQuestIds(),
+                    currentLevel = 1,
+                ),
             )
             if (o.targetType == QuestTargetType.KILL_KIND) {
                 assertTrue(o.targetKind in onFloor, "${o.id} ${o.targetKind} not on floor 1")
