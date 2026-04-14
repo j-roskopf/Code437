@@ -136,8 +136,16 @@ object MenuScene {
                                     throwable = it,
                                 )
                             }
+                        kotlin.runCatching { ctx.deleteScene(SceneId.INTRO_STORY) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete intro story scene for new run failed",
+                                    throwable = it,
+                                )
+                            }
                         ctx.addScene(GameScene.create(), false, false, false)
-                        ctx.switchScene(SceneId.GAME, false)
+                        ctx.addScene(IntroStoryScene.create(), false, false, false)
+                        ctx.switchScene(SceneId.INTRO_STORY, false)
                         handled = true
                     }
                     key == KEY_2 -> {

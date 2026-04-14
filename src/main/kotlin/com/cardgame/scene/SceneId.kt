@@ -5,6 +5,7 @@ package com.cardgame.scene
  */
 enum class SceneId(val id: String) {
     MENU("menu"),
+    INTRO_STORY("introstory"),
     GAME("game"),
     MINIGAMES("minigames"),
     CHARACTER_SELECT("characterselect"),
