@@ -46,6 +46,9 @@ private fun emuInitDim(args: Array<String>): Option<CPDim> =
     else Option.apply(CPDim.apply(GridConfig.MIN_EMUTERM_COLS, GridConfig.MIN_EMUTERM_ROWS))
 
 fun main(args: Array<String>) {
+    SentryBootstrap.init(args)
+    SentryBootstrap.captureTestExceptionIfRequested(args)
+
     // Keep packaged runs visually consistent with local dev unless explicitly overridden.
     if (System.getProperty("COSPLAY_EMUTERM_FONT_SIZE").isNullOrBlank()) {
         System.setProperty("COSPLAY_EMUTERM_FONT_SIZE", resolvedEmutermFontSize())
@@ -67,6 +70,12 @@ fun main(args: Array<String>) {
     Runtime.getRuntime().addShutdownHook(
         Thread {
             runCatching { GameState.persistDecksIfEnabled() }
+                .onFailure {
+                    SentryBootstrap.captureCaughtError(
+                        message = "Shutdown deck persistence failed",
+                        throwable = it,
+                    )
+                }
         }
     )
 
@@ -91,6 +100,7 @@ fun main(args: Array<String>) {
         CPEngine.startGame(SceneId.MENU.id, scenes)
     } finally {
         CPEngine.dispose()
+        SentryBootstrap.close()
     }
     // CosPlay/JavaFX may leave non-daemon threads alive after exitGame(); without this, `./gradlew run` never returns.
     System.exit(0)

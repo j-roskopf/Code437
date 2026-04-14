@@ -1,5 +1,6 @@
 package com.cardgame.game
 
+import com.cardgame.SentryBootstrap
 import java.io.File
 
 /**
@@ -40,7 +41,12 @@ object MiniGameScores {
                     KEY_SICBO_PEAK -> sicboPeakGold = v.coerceAtLeast(0)
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Mini game scores load failed",
+                throwable = e,
+                attributes = mapOf("path" to file.absolutePath),
+            )
             slotsPeakGold = 0
             sicboPeakGold = 0
         }
@@ -69,7 +75,16 @@ object MiniGameScores {
                     appendLine("$KEY_SICBO_PEAK=$sicboPeakGold")
                 }
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Mini game scores save failed",
+                throwable = e,
+                attributes = mapOf(
+                    "path" to file.absolutePath,
+                    "slots_peak_gold" to slotsPeakGold,
+                    "sicbo_peak_gold" to sicboPeakGold,
+                ),
+            )
             // ignore
         }
     }

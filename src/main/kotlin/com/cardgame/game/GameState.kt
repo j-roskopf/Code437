@@ -1,5 +1,6 @@
 package com.cardgame.game
 
+import com.cardgame.SentryBootstrap
 import com.cardgame.art.CardArt
 import com.cardgame.quest.ActiveQuest
 import com.cardgame.scene.SceneId
@@ -604,6 +605,14 @@ object GameState {
         debugInvincible = false
         debugNoScore = false
         debugLoopEnemyDeck = false
+        SentryBootstrap.info(
+            message = "Run reset",
+            attributes = mapOf(
+                "level" to currentLevel,
+                "character" to selectedPlayerCharacter.name,
+            ),
+            origin = "game.run",
+        )
     }
 
     fun addMoney(amount: Int) {
@@ -623,6 +632,7 @@ object GameState {
 
     fun advanceToNextLevel() {
         if (currentLevel < LevelConfig.COUNT) {
+            val previousLevel = currentLevel
             currentLevel++
             val heal = kotlin.math.max(
                 4,
@@ -641,6 +651,15 @@ object GameState {
             rebuildEnemyDeckForCurrentLevel()
             // Rebuild draw/discard from the full character build (includes shop purchases this visit).
             resetPlayerDeck()
+            SentryBootstrap.info(
+                message = "Advanced to next level",
+                attributes = mapOf(
+                    "from_level" to previousLevel,
+                    "to_level" to currentLevel,
+                    "health_after_heal" to playerHealth,
+                ),
+                origin = "game.level",
+            )
         }
     }
 
@@ -1302,10 +1321,26 @@ object GameState {
         if (plusIdx > 0 && plusIdx < t.length - 1) {
             val baseName = t.substring(0, plusIdx)
             val n = t.substring(plusIdx + 1).toIntOrNull() ?: return null
-            val c = runCatching { PlayerDeckCard.valueOf(baseName) }.getOrNull() ?: return null
+            val c = runCatching { PlayerDeckCard.valueOf(baseName) }
+                .onFailure {
+                    SentryBootstrap.captureCaughtError(
+                        message = "Parse deck card with plus failed",
+                        throwable = it,
+                        attributes = mapOf("raw" to raw),
+                    )
+                }
+                .getOrNull() ?: return null
             return DeckCardInstance(c, n.coerceIn(0, 10)).normalized()
         }
-        val c = runCatching { PlayerDeckCard.valueOf(t) }.getOrNull() ?: return null
+        val c = runCatching { PlayerDeckCard.valueOf(t) }
+            .onFailure {
+                SentryBootstrap.captureCaughtError(
+                    message = "Parse deck card failed",
+                    throwable = it,
+                    attributes = mapOf("raw" to raw),
+                )
+            }
+            .getOrNull() ?: return null
         return DeckCardInstance(c, 0)
     }
 
@@ -1318,6 +1353,13 @@ object GameState {
             suppressedArmorDeckInstancesThisRun.clear()
             saved.selectedCharacter?.let { sel ->
                 runCatching { selectedPlayerCharacter = PlayerCharacter.valueOf(sel) }
+                    .onFailure {
+                        SentryBootstrap.captureCaughtError(
+                            message = "Restore selected character failed",
+                            throwable = it,
+                            attributes = mapOf("selected_character" to sel),
+                        )
+                    }
             }
             for (ch in PlayerCharacter.entries) {
                 val cards = saved.characterDecks[ch.name] ?: continue
@@ -1364,7 +1406,12 @@ object GameState {
             if (DeckPersistenceCodec.needsRewrite(saved)) {
                 persistDecksIfEnabled()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Deck state restore failed",
+                throwable = e,
+                attributes = mapOf("level" to currentLevel),
+            )
             return
         }
     }
@@ -1400,7 +1447,15 @@ object GameState {
                 typeName = raw
                 bonus = 0
             }
-            val itype = runCatching { ItemType.valueOf(typeName) }.getOrNull() ?: continue
+            val itype = runCatching { ItemType.valueOf(typeName) }
+                .onFailure {
+                    SentryBootstrap.captureCaughtError(
+                        message = "Restore equipped item type failed",
+                        throwable = it,
+                        attributes = mapOf("item_type" to typeName, "slot" to slot.name),
+                    )
+                }
+                .getOrNull() ?: continue
             if (itype.equipmentSlot() != slot) continue
             setEquippedItem(slot, itype, bonus.coerceIn(0, 10))
         }
@@ -1449,14 +1504,38 @@ object GameState {
         return when (p[0]) {
             "e" -> {
                 if (p.size < 3) return null
-                val kind = runCatching { EnemyKind.valueOf(p[1]) }.getOrNull() ?: return null
+                val kind = runCatching { EnemyKind.valueOf(p[1]) }
+                    .onFailure {
+                        SentryBootstrap.captureCaughtError(
+                            message = "Parse persisted enemy kind failed",
+                            throwable = it,
+                            attributes = mapOf("segment" to seg),
+                        )
+                    }
+                    .getOrNull() ?: return null
                 EnemyDeckCard(enemyKind = kind, isElite = p[2] == "1")
             }
             "h" -> {
                 if (p.size < 2) return null
-                val hz = runCatching { ItemType.valueOf(p[1]) }.getOrNull() ?: return null
+                val hz = runCatching { ItemType.valueOf(p[1]) }
+                    .onFailure {
+                        SentryBootstrap.captureCaughtError(
+                            message = "Parse persisted hazard type failed",
+                            throwable = it,
+                            attributes = mapOf("segment" to seg),
+                        )
+                    }
+                    .getOrNull() ?: return null
                 val tier = p.getOrNull(2)?.takeIf { it.isNotBlank() }?.let { t ->
-                    runCatching { KeyTier.valueOf(t) }.getOrNull()
+                    runCatching { KeyTier.valueOf(t) }
+                        .onFailure {
+                            SentryBootstrap.captureCaughtError(
+                                message = "Parse persisted hazard tier failed",
+                                throwable = it,
+                                attributes = mapOf("segment" to seg, "tier" to t),
+                            )
+                        }
+                        .getOrNull()
                 }
                 EnemyDeckCard(hazardType = hz, hazardTier = tier)
             }
@@ -1477,9 +1556,30 @@ object GameState {
             )
         )
         updateQuestProgress()
+        SentryBootstrap.info(
+            message = "Quest accepted",
+            attributes = mapOf(
+                "quest_id" to template.id,
+                "quest_title" to template.title,
+                "level" to currentLevel,
+                "active_quest_count" to activeQuests.size,
+            ),
+            origin = "game.quest",
+        )
     }
 
     fun denyPendingQuest() {
+        pendingQuestOffer?.let {
+            SentryBootstrap.info(
+                message = "Quest denied",
+                attributes = mapOf(
+                    "quest_id" to it.id,
+                    "quest_title" to it.title,
+                    "level" to currentLevel,
+                ),
+                origin = "game.quest",
+            )
+        }
         pendingQuestOffer = null
         pendingQuestAtCapacity = false
     }
@@ -1502,9 +1602,19 @@ object GameState {
     /** Drops one accepted quest by index in [activeQuests] order. */
     fun dropActiveQuestAt(index: Int): Boolean {
         if (index !in activeQuests.indices) return false
-        activeQuests.removeAt(index)
+        val dropped = activeQuests.removeAt(index)
         pendingQuestAtCapacity = false
         updateQuestProgress()
+        SentryBootstrap.info(
+            message = "Quest dropped",
+            attributes = mapOf(
+                "quest_id" to dropped.template.id,
+                "quest_title" to dropped.template.title,
+                "level" to currentLevel,
+                "active_quest_count" to activeQuests.size,
+            ),
+            origin = "game.quest",
+        )
         return true
     }
 
@@ -1643,6 +1753,16 @@ object GameState {
             if (p >= q.template.targetCount) {
                 completedRewards.add(q.template.rewardGold)
                 completedQuestIds.add(q.template.id)
+                SentryBootstrap.info(
+                    message = "Quest completed",
+                    attributes = mapOf(
+                        "quest_id" to q.template.id,
+                        "quest_title" to q.template.title,
+                        "reward_gold" to q.template.rewardGold,
+                        "level" to currentLevel,
+                    ),
+                    origin = "game.quest",
+                )
                 iter.remove()
             }
         }

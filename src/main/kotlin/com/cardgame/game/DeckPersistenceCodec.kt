@@ -1,5 +1,6 @@
 package com.cardgame.game
 
+import com.cardgame.SentryBootstrap
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
@@ -119,63 +120,98 @@ object DeckPersistenceCodec {
         state.sourceFormat != FORMAT || state.sourceSchemaVersion != CURRENT_SCHEMA_VERSION
 
     private fun decodeJson(raw: String): PersistedDeckState? {
-        val probe = runCatching { probeAdapter.fromJson(raw) }.getOrNull() ?: return null
+        val probe = runCatching { probeAdapter.fromJson(raw) }
+            .onFailure {
+                SentryBootstrap.captureCaughtError(
+                    message = "Deck persistence probe decode failed",
+                    throwable = it,
+                )
+            }
+            .getOrNull() ?: return null
         return when (probe.schemaVersion) {
-            1 -> runCatching { v1Adapter.fromJson(raw) }.getOrNull()?.let { v1 ->
-                PersistedDeckState(
-                    selectedCharacter = v1.selectedCharacter,
-                    characterDecks = v1.characterDecks,
-                    playerDeckDraw = v1.playerDeckDraw,
-                    playerDeckDiscard = v1.playerDeckDiscard,
-                    enemyDeckDraw = v1.enemyDeckDraw,
-                    enemyDeckDiscard = v1.enemyDeckDiscard,
-                    sourceSchemaVersion = 1,
-                    sourceFormat = FORMAT,
-                )
-            }
-            2 -> runCatching { v2Adapter.fromJson(raw) }.getOrNull()?.let { v2 ->
-                PersistedDeckState(
-                    selectedCharacter = v2.selectedCharacter,
-                    characterDecks = v2.characterDecks,
-                    playerDeckDraw = v2.playerDeckDraw,
-                    playerDeckDiscard = v2.playerDeckDiscard,
-                    enemyDeckDraw = v2.enemyDeckDraw,
-                    enemyDeckDiscard = v2.enemyDeckDiscard,
-                    spawnQueue = v2.spawnQueue,
-                    sourceSchemaVersion = 2,
-                    sourceFormat = FORMAT,
-                )
-            }
-            3 -> runCatching { v3Adapter.fromJson(raw) }.getOrNull()?.let { v3 ->
-                PersistedDeckState(
-                    selectedCharacter = v3.selectedCharacter,
-                    characterDecks = v3.characterDecks,
-                    playerDeckDraw = v3.playerDeckDraw,
-                    playerDeckDiscard = v3.playerDeckDiscard,
-                    enemyDeckDraw = v3.enemyDeckDraw,
-                    enemyDeckDiscard = v3.enemyDeckDiscard,
-                    spawnQueue = v3.spawnQueue,
-                    equipped = v3.equipped,
-                    sourceSchemaVersion = 3,
-                    sourceFormat = v3.format,
-                )
-            }
-            4 -> runCatching { v4Adapter.fromJson(raw) }.getOrNull()?.let { v4 ->
-                PersistedDeckState(
-                    selectedCharacter = v4.selectedCharacter,
-                    characterDecks = v4.characterDecks,
-                    playerDeckDraw = v4.playerDeckDraw,
-                    playerDeckDiscard = v4.playerDeckDiscard,
-                    enemyDeckDraw = v4.enemyDeckDraw,
-                    enemyDeckDiscard = v4.enemyDeckDiscard,
-                    spawnQueue = v4.spawnQueue,
-                    equipped = v4.equipped,
-                    enemyObjectiveQuota = v4.enemyObjectiveQuota,
-                    enemyObjectiveDefeated = v4.enemyObjectiveDefeated,
-                    sourceSchemaVersion = 4,
-                    sourceFormat = v4.format,
-                )
-            }
+            1 -> runCatching { v1Adapter.fromJson(raw) }
+                .onFailure {
+                    SentryBootstrap.captureCaughtError(
+                        message = "Deck persistence v1 decode failed",
+                        throwable = it,
+                    )
+                }
+                .getOrNull()?.let { v1 ->
+                    PersistedDeckState(
+                        selectedCharacter = v1.selectedCharacter,
+                        characterDecks = v1.characterDecks,
+                        playerDeckDraw = v1.playerDeckDraw,
+                        playerDeckDiscard = v1.playerDeckDiscard,
+                        enemyDeckDraw = v1.enemyDeckDraw,
+                        enemyDeckDiscard = v1.enemyDeckDiscard,
+                        sourceSchemaVersion = 1,
+                        sourceFormat = FORMAT,
+                    )
+                }
+            2 -> runCatching { v2Adapter.fromJson(raw) }
+                .onFailure {
+                    SentryBootstrap.captureCaughtError(
+                        message = "Deck persistence v2 decode failed",
+                        throwable = it,
+                    )
+                }
+                .getOrNull()?.let { v2 ->
+                    PersistedDeckState(
+                        selectedCharacter = v2.selectedCharacter,
+                        characterDecks = v2.characterDecks,
+                        playerDeckDraw = v2.playerDeckDraw,
+                        playerDeckDiscard = v2.playerDeckDiscard,
+                        enemyDeckDraw = v2.enemyDeckDraw,
+                        enemyDeckDiscard = v2.enemyDeckDiscard,
+                        spawnQueue = v2.spawnQueue,
+                        sourceSchemaVersion = 2,
+                        sourceFormat = FORMAT,
+                    )
+                }
+            3 -> runCatching { v3Adapter.fromJson(raw) }
+                .onFailure {
+                    SentryBootstrap.captureCaughtError(
+                        message = "Deck persistence v3 decode failed",
+                        throwable = it,
+                    )
+                }
+                .getOrNull()?.let { v3 ->
+                    PersistedDeckState(
+                        selectedCharacter = v3.selectedCharacter,
+                        characterDecks = v3.characterDecks,
+                        playerDeckDraw = v3.playerDeckDraw,
+                        playerDeckDiscard = v3.playerDeckDiscard,
+                        enemyDeckDraw = v3.enemyDeckDraw,
+                        enemyDeckDiscard = v3.enemyDeckDiscard,
+                        spawnQueue = v3.spawnQueue,
+                        equipped = v3.equipped,
+                        sourceSchemaVersion = 3,
+                        sourceFormat = v3.format,
+                    )
+                }
+            4 -> runCatching { v4Adapter.fromJson(raw) }
+                .onFailure {
+                    SentryBootstrap.captureCaughtError(
+                        message = "Deck persistence v4 decode failed",
+                        throwable = it,
+                    )
+                }
+                .getOrNull()?.let { v4 ->
+                    PersistedDeckState(
+                        selectedCharacter = v4.selectedCharacter,
+                        characterDecks = v4.characterDecks,
+                        playerDeckDraw = v4.playerDeckDraw,
+                        playerDeckDiscard = v4.playerDeckDiscard,
+                        enemyDeckDraw = v4.enemyDeckDraw,
+                        enemyDeckDiscard = v4.enemyDeckDiscard,
+                        spawnQueue = v4.spawnQueue,
+                        equipped = v4.equipped,
+                        enemyObjectiveQuota = v4.enemyObjectiveQuota,
+                        enemyObjectiveDefeated = v4.enemyObjectiveDefeated,
+                        sourceSchemaVersion = 4,
+                        sourceFormat = v4.format,
+                    )
+                }
             else -> null
         }
     }

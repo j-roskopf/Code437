@@ -48,7 +48,18 @@ object GameOverScene {
                     KEY_Q -> ctx.exitGame()
                     KEY_R -> {
                         GameState.resetForLevel(GameState.currentLevel)
+                        SentryBootstrap.info(
+                            message = "Run retry selected",
+                            attributes = mapOf("level" to GameState.currentLevel),
+                            origin = "game.run",
+                        )
                         kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete game scene on retry failed",
+                                    throwable = it,
+                                )
+                            }
                         ctx.addScene(GameScene.create(), false, false, false)
                         ctx.switchScene(SceneId.GAME, false)
                     }

@@ -13,6 +13,9 @@ jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.runs_on }}
+    env:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
     strategy:
       fail-fast: false
       matrix:

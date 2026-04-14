@@ -475,6 +475,12 @@ object GameScene {
      * old entity remains → overlapping art.
      */
     private fun removeEntitiesAt(gridX: Int, gridY: Int) {
+        val itemsToResolve = items.filter {
+            it.gridX == gridX && it.gridY == gridY && !it.collected && it.type != ItemType.WALL
+        }
+        val enemiesToResolve = enemies.filter { it.gridX == gridX && it.gridY == gridY && !it.defeated }
+        itemsToResolve.forEach { markItemResolved(it) }
+        enemiesToResolve.forEach { markEnemyResolved(it) }
         items = items.filterNot {
             it.gridX == gridX && it.gridY == gridY && !it.collected && it.type != ItemType.WALL
         }
@@ -485,6 +491,13 @@ object GameScene {
     private fun removeOthersAtCell(gridX: Int, gridY: Int, mover: Any) {
         when (mover) {
             is GridItem -> {
+                val itemsToResolve = items.filter {
+                    !it.collected && it.gridX == gridX && it.gridY == gridY &&
+                        it !== mover && it.type != ItemType.WALL
+                }
+                val enemiesToResolve = enemies.filter { !it.defeated && it.gridX == gridX && it.gridY == gridY }
+                itemsToResolve.forEach { markItemResolved(it) }
+                enemiesToResolve.forEach { markEnemyResolved(it) }
                 items = items.filterNot {
                     !it.collected && it.gridX == gridX && it.gridY == gridY &&
                         it !== mover && it.type != ItemType.WALL
@@ -492,6 +505,14 @@ object GameScene {
                 enemies = enemies.filterNot { !it.defeated && it.gridX == gridX && it.gridY == gridY }
             }
             is EnemyCard -> {
+                val itemsToResolve = items.filter {
+                    !it.collected && it.gridX == gridX && it.gridY == gridY && it.type != ItemType.WALL
+                }
+                val enemiesToResolve = enemies.filter {
+                    !it.defeated && it.gridX == gridX && it.gridY == gridY && it !== mover
+                }
+                itemsToResolve.forEach { markItemResolved(it) }
+                enemiesToResolve.forEach { markEnemyResolved(it) }
                 items = items.filterNot {
                     !it.collected && it.gridX == gridX && it.gridY == gridY && it.type != ItemType.WALL
                 }
@@ -1168,6 +1189,16 @@ object GameScene {
                     GameState.gameOver = true
                     GameState.playerHealth = 0
                     GameState.runEndKind = RunEndKind.DEATH
+                    SentryBootstrap.info(
+                        message = "Player died",
+                        attributes = mapOf(
+                            "cause" to "bomb",
+                            "level" to GameState.currentLevel,
+                            "x" to nx,
+                            "y" to ny,
+                        ),
+                        origin = "game.death",
+                    )
                     ctx.switchScene(SceneId.RUN_SUMMARY, false)
                     return
                 }
@@ -1705,6 +1736,12 @@ object GameScene {
                 when (key) {
                     KEY_Z -> {
                         kotlin.runCatching { ctx.deleteScene(SceneId.DEBUG_MENU) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete debug menu scene failed",
+                                    throwable = it,
+                                )
+                            }
                         ctx.addScene(DebugMenuScene.create(), false, false, false)
                         ctx.switchScene(SceneId.DEBUG_MENU, false)
                         return
@@ -1741,6 +1778,15 @@ object GameScene {
                         val chest = moveResolution.chest ?: return
                         GameState.tryConsumeKey(chest.tier)
                         chest.chestOpened = true
+                        SentryBootstrap.info(
+                            message = "Chest unlocked",
+                            attributes = mapOf(
+                                "tier" to chest.tier.name,
+                                "gold_value" to chest.value,
+                                "level" to GameState.currentLevel,
+                            ),
+                            origin = "game.loot",
+                        )
                         itemFlash.flash(newX, newY)
                         confetti.spawn(newX, newY)
                         return
@@ -1776,6 +1822,16 @@ object GameScene {
                     GameState.gameOver = true
                     GameState.playerHealth = 0
                     GameState.runEndKind = RunEndKind.DEATH
+                    SentryBootstrap.info(
+                        message = "Player died",
+                        attributes = mapOf(
+                            "cause" to "spikes",
+                            "level" to GameState.currentLevel,
+                            "x" to newX,
+                            "y" to newY,
+                        ),
+                        origin = "game.death",
+                    )
                     ctx.switchScene(SceneId.RUN_SUMMARY, false)
                     return
                 }
@@ -1792,6 +1848,12 @@ object GameScene {
                     val pmSecret = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
                     if (applyPostMoveSlidingAndBombs(ctx, pmSecret, prevX, prevY)) return
                     kotlin.runCatching { ctx.deleteScene(SceneId.SECRET_ROOM) }
+                        .onFailure {
+                            SentryBootstrap.captureCaughtError(
+                                message = "Delete secret room scene failed",
+                                throwable = it,
+                            )
+                        }
                     ctx.addScene(SecretRoomScene.create(), false, false, false)
                     ctx.switchScene(SceneId.SECRET_ROOM, false)
                     return
@@ -1818,6 +1880,15 @@ object GameScene {
                                 currentLevel = GameState.currentLevel,
                             )
                             GameState.pendingQuestAtCapacity = !GameState.canAcceptNewQuest()
+                            SentryBootstrap.info(
+                                message = "Quest board opened",
+                                attributes = mapOf(
+                                    "level" to GameState.currentLevel,
+                                    "at_capacity" to (!GameState.canAcceptNewQuest()),
+                                    "offer_id" to (GameState.pendingQuestOffer?.id ?: "none"),
+                                ),
+                                origin = "game.quest",
+                            )
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
                             val pmQuest = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
@@ -1827,12 +1898,27 @@ object GameScene {
                         }
                         if (item.type == ItemType.REST) {
                             GameState.setPendingRestTileBonusHeal(item.value)
+                            SentryBootstrap.info(
+                                message = "Rest point entered",
+                                attributes = mapOf(
+                                    "level" to GameState.currentLevel,
+                                    "tile_heal_bonus" to item.value,
+                                    "health" to GameState.playerHealth,
+                                ),
+                                origin = "game.rest",
+                            )
                             markItemResolved(item)
                             itemFlash.flash(newX, newY)
                             confetti.spawn(newX, newY)
                             val pmRest = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
                             if (applyPostMoveSlidingAndBombs(ctx, pmRest, prevX, prevY)) return
                             kotlin.runCatching { ctx.deleteScene(SceneId.REST) }
+                                .onFailure {
+                                    SentryBootstrap.captureCaughtError(
+                                        message = "Delete rest scene failed",
+                                        throwable = it,
+                                    )
+                                }
                             ctx.addScene(RestScene.create(), false, false, false)
                             ctx.switchScene(SceneId.REST, false)
                             return
@@ -1867,6 +1953,12 @@ object GameScene {
                     val pmPend = planPostMoveFlow(prevX, prevY, GameState.playerGridX, GameState.playerGridY, dx, dy)
                     if (applyPostMoveSlidingAndBombs(ctx, pmPend, prevX, prevY)) return
                     kotlin.runCatching { ctx.deleteScene(SceneId.SECRET_ROOM) }
+                        .onFailure {
+                            SentryBootstrap.captureCaughtError(
+                                message = "Delete secret room scene for pending room failed",
+                                throwable = it,
+                            )
+                        }
                     ctx.addScene(SecretRoomScene.create(), false, false, false)
                     ctx.switchScene(SceneId.SECRET_ROOM, false)
                     return
@@ -1922,6 +2014,12 @@ object GameScene {
                                     )
                                     if (applyPostMoveSlidingAndBombs(ctx, pmSn, prevX, prevY)) return
                                     kotlin.runCatching { ctx.deleteScene(SceneId.SECRET_ROOM) }
+                                        .onFailure {
+                                            SentryBootstrap.captureCaughtError(
+                                                message = "Delete secret room scene after enemy defeat failed",
+                                                throwable = it,
+                                            )
+                                        }
                                     ctx.addScene(SecretRoomScene.create(), false, false, false)
                                     ctx.switchScene(SceneId.SECRET_ROOM, false)
                                     return
@@ -1935,6 +2033,16 @@ object GameScene {
                             GameState.playerHealth = 0
                             GameState.gameOver = true
                             GameState.runEndKind = RunEndKind.DEATH
+                            SentryBootstrap.info(
+                                message = "Player died",
+                                attributes = mapOf(
+                                    "cause" to "enemy_combat",
+                                    "enemy_kind" to enemy.kind.name,
+                                    "enemy_elite" to enemy.isElite,
+                                    "level" to GameState.currentLevel,
+                                ),
+                                origin = "game.death",
+                            )
                             ctx.switchScene(SceneId.RUN_SUMMARY, false)
                             return
                         }
@@ -1973,12 +2081,33 @@ object GameScene {
                     PostMoveSceneRoute.SHOP -> {
                         GameState.shopDismissAction = ShopDismissAction.SwitchTo(SceneId.GAME)
                         kotlin.runCatching { ctx.deleteScene(SceneId.SHOP_DECK_TRIM) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete shop trim scene failed",
+                                    throwable = it,
+                                )
+                            }
                         kotlin.runCatching { ctx.deleteScene(SceneId.SHOP) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete shop scene failed",
+                                    throwable = it,
+                                )
+                            }
                         ctx.addScene(ShopScene.create(), false, false, false)
                         ctx.switchScene(SceneId.SHOP, false)
                         return
                     }
                     PostMoveSceneRoute.LEVEL_COMPLETE -> {
+                        SentryBootstrap.info(
+                            message = "Level complete",
+                            attributes = mapOf(
+                                "level" to GameState.currentLevel,
+                                "score" to GameState.score,
+                                "money" to GameState.money,
+                            ),
+                            origin = "game.level",
+                        )
                         Progress.onLevelCleared(GameState.currentLevel)
                         ctx.switchScene(SceneId.LEVEL_COMPLETE, false)
                         return

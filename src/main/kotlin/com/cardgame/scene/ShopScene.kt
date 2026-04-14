@@ -143,16 +143,39 @@ object ShopScene {
                         return
                     }
                     kotlin.runCatching { ctx.deleteScene(SceneId.SHOP_DECK_TRIM) }
+                        .onFailure {
+                            SentryBootstrap.captureCaughtError(
+                                message = "Delete shop deck trim scene before open failed",
+                                throwable = it,
+                            )
+                        }
                     ctx.addScene(
                         ShopDeckTrimScene.create(
                             onCancel = { c ->
                                 kotlin.runCatching { c.deleteScene(SceneId.SHOP_DECK_TRIM) }
+                                    .onFailure {
+                                        SentryBootstrap.captureCaughtError(
+                                            message = "Delete shop deck trim scene on cancel failed",
+                                            throwable = it,
+                                        )
+                                    }
                                 c.switchScene(SceneId.SHOP, false)
                             },
                             onRemoved = { c, label ->
                                 removeUsedThisVisit = true
                                 startRemoveFeedback("  Removed $label from your build.")
+                                SentryBootstrap.info(
+                                    message = "Shop card removed",
+                                    attributes = mapOf("card_label" to label),
+                                    origin = "game.shop",
+                                )
                                 kotlin.runCatching { c.deleteScene(SceneId.SHOP_DECK_TRIM) }
+                                    .onFailure {
+                                        SentryBootstrap.captureCaughtError(
+                                            message = "Delete shop deck trim scene on removed failed",
+                                            throwable = it,
+                                        )
+                                    }
                                 c.switchScene(SceneId.SHOP, false)
                             },
                         ),
@@ -176,6 +199,11 @@ object ShopScene {
                     KEY_9 -> {
                         val cost = GameState.KEY_TRADE_UP_COST
                         if (GameState.tryTradeBronzeKeysForSilver()) {
+                            SentryBootstrap.info(
+                                message = "Shop key trade succeeded",
+                                attributes = mapOf("from" to "bronze", "to" to "silver", "cost" to cost),
+                                origin = "game.shop",
+                            )
                             tradeFeedback = "  Traded $cost bronze keys for 1 silver."
                             tradeFeedbackTicks = TRADE_OK_FEEDBACK_TICKS
                         } else {
@@ -187,6 +215,11 @@ object ShopScene {
                     KEY_0 -> {
                         val cost = GameState.KEY_TRADE_UP_COST
                         if (GameState.tryTradeSilverKeysForGold()) {
+                            SentryBootstrap.info(
+                                message = "Shop key trade succeeded",
+                                attributes = mapOf("from" to "silver", "to" to "gold", "cost" to cost),
+                                origin = "game.shop",
+                            )
                             tradeFeedback = "  Traded $cost silver keys for 1 gold."
                             tradeFeedbackTicks = TRADE_OK_FEEDBACK_TICKS
                         } else {
@@ -197,10 +230,22 @@ object ShopScene {
                     }
                     KEY_B, KEY_ESC -> {
                         kotlin.runCatching { ctx.deleteScene(SceneId.SHOP_DECK_TRIM) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete shop deck trim scene on dismiss failed",
+                                    throwable = it,
+                                )
+                            }
                         when (val dismiss = GameState.shopDismissAction) {
                             ShopDismissAction.AdvanceLevelRecreateGame -> {
                                 GameState.advanceToNextLevel()
                                 kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+                                    .onFailure {
+                                        SentryBootstrap.captureCaughtError(
+                                            message = "Delete game scene while leaving shop failed",
+                                            throwable = it,
+                                        )
+                                    }
                                 ctx.addScene(GameScene.create(), false, false, false)
                                 ctx.switchScene(SceneId.GAME, false)
                             }
@@ -215,6 +260,16 @@ object ShopScene {
                 val o = offers[idx]
                 if (!GameState.trySpendMoney(o.price)) return
                 GameState.addCardToPlayerDeck(o.instance)
+                SentryBootstrap.info(
+                    message = "Shop card purchased",
+                    attributes = mapOf(
+                        "card" to o.instance.card.name,
+                        "plus" to o.instance.plus,
+                        "price" to o.price,
+                        "money_remaining" to GameState.money,
+                    ),
+                    origin = "game.shop",
+                )
                 sold[idx] = true
             }
 

@@ -1,5 +1,6 @@
 package com.cardgame.platform
 
+import com.cardgame.SentryBootstrap
 import java.awt.Window
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
@@ -24,7 +25,12 @@ object EmutermFullscreen {
                         applyFullscreenOrMaximized(frame)
                         attached = true
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    SentryBootstrap.captureCaughtError(
+                        message = "Emuterm fullscreen watcher failed",
+                        throwable = e,
+                        attributes = mapOf("title_hint" to gameTitleContains),
+                    )
                     return@Thread
                 }
                 if (attached) return@Thread
@@ -50,12 +56,20 @@ object EmutermFullscreen {
             gd.fullScreenWindow = w
             w.toFront()
             w.requestFocus()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Emuterm fullscreen apply failed",
+                throwable = e,
+            )
             try {
                 w.extendedState = JFrame.MAXIMIZED_BOTH
                 w.toFront()
                 w.requestFocus()
-            } catch (_: Exception) {
+            } catch (fallback: Exception) {
+                SentryBootstrap.captureCaughtError(
+                    message = "Emuterm maximize fallback failed",
+                    throwable = fallback,
+                )
                 // ignore
             }
         }

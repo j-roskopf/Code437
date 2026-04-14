@@ -1,5 +1,6 @@
 package com.cardgame.game
 
+import com.cardgame.SentryBootstrap
 import java.io.File
 
 /**
@@ -23,7 +24,12 @@ object Progress {
                 val v = file.readText().trim().toIntOrNull() ?: 1
                 maxSelectableLevel = v.coerceIn(1, LevelConfig.COUNT)
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Progress load failed",
+                throwable = e,
+                attributes = mapOf("path" to file.absolutePath),
+            )
             maxSelectableLevel = 1
         }
     }
@@ -40,7 +46,12 @@ object Progress {
     private fun save() {
         try {
             file.writeText(maxSelectableLevel.toString())
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Progress save failed",
+                throwable = e,
+                attributes = mapOf("path" to file.absolutePath),
+            )
             // ignore
         }
     }
@@ -51,7 +62,12 @@ object Progress {
     fun deleteSavedProgress() {
         try {
             if (file.exists()) file.delete()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Progress delete failed",
+                throwable = e,
+                attributes = mapOf("path" to file.absolutePath),
+            )
             // ignore
         }
         maxSelectableLevel = 1

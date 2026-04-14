@@ -68,6 +68,17 @@ object MiniGamesHubScene {
                             ctx.deleteScene(SceneId.SLOTS)
                             ctx.deleteScene(SceneId.SICBO)
                         }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Mini games hub scene cleanup failed for slots",
+                                    throwable = it,
+                                )
+                            }
+                        SentryBootstrap.info(
+                            message = "Mini game entered",
+                            attributes = mapOf("mini_game" to "slots"),
+                            origin = "game.minigame",
+                        )
                         ctx.addScene(SlotMachineScene.create(), false, false, false)
                         ctx.switchScene(SceneId.SLOTS, false)
                     }
@@ -76,6 +87,17 @@ object MiniGamesHubScene {
                             ctx.deleteScene(SceneId.SICBO)
                             ctx.deleteScene(SceneId.SLOTS)
                         }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Mini games hub scene cleanup failed for sicbo",
+                                    throwable = it,
+                                )
+                            }
+                        SentryBootstrap.info(
+                            message = "Mini game entered",
+                            attributes = mapOf("mini_game" to "sicbo"),
+                            origin = "game.minigame",
+                        )
                         ctx.addScene(SicBoScene.create(), false, false, false)
                         ctx.switchScene(SceneId.SICBO, false)
                     }

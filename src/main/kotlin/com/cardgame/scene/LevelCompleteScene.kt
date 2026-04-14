@@ -55,14 +55,42 @@ object LevelCompleteScene {
                 when (key) {
                     KEY_N -> {
                         RunStats.bankLevelClear(GameState.score)
+                        SentryBootstrap.info(
+                            message = "Level clear banked",
+                            attributes = mapOf(
+                                "level" to GameState.currentLevel,
+                                "score_banked" to GameState.score,
+                            ),
+                            origin = "game.level",
+                        )
                         if (GameState.currentLevel < LevelConfig.COUNT) {
                             GameState.shopDismissAction = ShopDismissAction.AdvanceLevelRecreateGame
                             kotlin.runCatching { ctx.deleteScene(SceneId.SHOP_DECK_TRIM) }
+                                .onFailure {
+                                    SentryBootstrap.captureCaughtError(
+                                        message = "Delete shop trim scene before level-clear shop failed",
+                                        throwable = it,
+                                    )
+                                }
                             kotlin.runCatching { ctx.deleteScene(SceneId.SHOP) }
+                                .onFailure {
+                                    SentryBootstrap.captureCaughtError(
+                                        message = "Delete shop scene before level-clear shop failed",
+                                        throwable = it,
+                                    )
+                                }
                             ctx.addScene(ShopScene.create(), false, false, false)
                             ctx.switchScene(SceneId.SHOP, false)
                         } else {
                             GameState.runEndKind = RunEndKind.VICTORY
+                            SentryBootstrap.info(
+                                message = "Run victory",
+                                attributes = mapOf(
+                                    "level" to GameState.currentLevel,
+                                    "score" to GameState.score,
+                                ),
+                                origin = "game.run",
+                            )
                             ctx.switchScene(SceneId.RUN_SUMMARY, false)
                         }
                     }

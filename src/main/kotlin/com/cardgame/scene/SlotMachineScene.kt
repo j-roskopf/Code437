@@ -492,6 +492,12 @@ object SlotMachineScene {
                         if (!useRunGold) MiniGameScores.recordSlotsPeakGold(sessionPeak)
                         ctx.switchScene(SceneId.MINIGAMES, false)
                         kotlin.runCatching { ctx.deleteScene(SceneId.SLOTS) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete slot machine scene failed",
+                                    throwable = it,
+                                )
+                            }
                     }
                     else -> {}
                 }

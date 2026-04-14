@@ -27,7 +27,19 @@ object LevelSelectScene {
     private fun tryStartLevel(ctx: CPSceneObjectContext, level: Int) {
         if (!Progress.isUnlocked(level)) return
         GameState.resetForLevel(level)
+        SentryBootstrap.recordNewGameStarted(
+            startingLevel = level,
+            source = "level_select",
+            character = GameState.selectedPlayerCharacter.name,
+        )
         kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+            .onFailure {
+                SentryBootstrap.captureCaughtError(
+                    message = "Delete game scene from level select failed",
+                    throwable = it,
+                    attributes = mapOf("level" to level),
+                )
+            }
         ctx.addScene(GameScene.create(), false, false, false)
         ctx.switchScene(SceneId.GAME, false)
     }

@@ -84,12 +84,25 @@ object MenuScene {
                 if (deleteConfirmActive) {
                     when {
                         isYesKey(key) -> {
-                            val ok = kotlin.runCatching { GameState.deleteAllSaveDataAndResetToDefaults() }.isSuccess
+                            val ok = kotlin.runCatching { GameState.deleteAllSaveDataAndResetToDefaults() }
+                                .onFailure {
+                                    SentryBootstrap.captureCaughtError(
+                                        message = "Delete save data failed",
+                                        throwable = it,
+                                    )
+                                }
+                                .isSuccess
                             deleteConfirmActive = false
                             if (ok) {
                                 deleteSaveFeedbackTicks = 120
                             }
                             kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+                                .onFailure {
+                                    SentryBootstrap.captureCaughtError(
+                                        message = "Delete game scene from menu failed",
+                                        throwable = it,
+                                    )
+                                }
                             handled = true
                         }
                         isNoKey(key) || key == KEY_ESC || key == KEY_LO_B -> {
@@ -111,7 +124,18 @@ object MenuScene {
                 when {
                     key == KEY_1 -> {
                         GameState.resetForLevel(1)
+                        SentryBootstrap.recordNewGameStarted(
+                            startingLevel = 1,
+                            source = "menu",
+                            character = GameState.selectedPlayerCharacter.name,
+                        )
                         kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete game scene for new run failed",
+                                    throwable = it,
+                                )
+                            }
                         ctx.addScene(GameScene.create(), false, false, false)
                         ctx.switchScene(SceneId.GAME, false)
                         handled = true

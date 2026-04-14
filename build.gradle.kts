@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm") version "1.9.22"
     application
     id("org.openjfx.javafxplugin") version "0.1.0"
+    id("io.sentry.jvm.gradle") version "6.4.0"
 }
 
 group = "com.cardgame"
@@ -51,6 +52,18 @@ tasks.withType<JavaExec> {
 
 kotlin {
     jvmToolchain(17)
+}
+
+sentry {
+    val auth = System.getenv("SENTRY_AUTH_TOKEN") ?: ""
+    // Source upload requires a token; without it, skip bundling/upload so local/CI builds still succeed.
+    includeSourceContext.set(auth.isNotBlank())
+    org.set("personal-0mr")
+    projectName.set("code437")
+    authToken.set(auth)
+    autoInstallation {
+        enabled.set(true)
+    }
 }
 
 tasks.withType<Test>().configureEach {

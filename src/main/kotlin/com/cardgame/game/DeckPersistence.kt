@@ -1,5 +1,6 @@
 package com.cardgame.game
 
+import com.cardgame.SentryBootstrap
 import java.io.File
 
 /**
@@ -42,7 +43,12 @@ object DeckPersistence {
                     legacy.delete()
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Deck persistence save failed",
+                throwable = e,
+                attributes = mapOf("path" to persistenceFile().absolutePath),
+            )
             // Best-effort; avoid crashing the game on bad permissions, etc.
         }
     }
@@ -61,7 +67,12 @@ object DeckPersistence {
                     legacy.takeIf { it.isFile }?.readText(Charsets.UTF_8)
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Deck persistence load failed",
+                throwable = e,
+                attributes = mapOf("path" to persistenceFile().absolutePath),
+            )
             null
         }
 
@@ -79,7 +90,12 @@ object DeckPersistence {
             val dir = savesDirWithoutCreating()
             File(dir, DEFAULT_FILENAME).takeIf { it.isFile }?.delete()
             File(dir, LEGACY_FILENAME).takeIf { it.isFile }?.delete()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            SentryBootstrap.captureCaughtError(
+                message = "Deck persistence delete failed",
+                throwable = e,
+                attributes = mapOf("override_path" to System.getProperty(PROP_FILE)),
+            )
             // ignore
         }
     }

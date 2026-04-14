@@ -389,6 +389,12 @@ object SicBoScene {
                         if (!useRunGold) MiniGameScores.recordSicboPeakGold(sessionPeak)
                         ctx.switchScene(SceneId.MINIGAMES, false)
                         kotlin.runCatching { ctx.deleteScene(SceneId.SICBO) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete Sic Bo scene failed",
+                                    throwable = it,
+                                )
+                            }
                     }
                     else -> {}
                 }
