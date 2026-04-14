@@ -288,7 +288,7 @@ object GameScene {
     private val slideAnimations = IdentityHashMap<Any, SlideAnim>()
     private const val SLIDE_DURATION_FRAMES = 6
     private const val DECK_SLIDE_DURATION_FRAMES = 27
-    /** Normalized time: flip at deck (face-down → face-up), then exit left, then approach from board edge. */
+    /** Normalized time: flip at deck, then move off-screen (enemy up / player down), then approach tile. */
     private const val DECK_FLIP_END_T = 0.40f
     private const val DECK_EXIT_END_T = 0.64f
 
@@ -352,6 +352,12 @@ object GameScene {
         }
         val w = GridConfig.CELL_WIDTH
         val h = GridConfig.CELL_HEIGHT
+        val canvasW = GridConfig.lastCanvasWidth
+        val canvasH = GridConfig.lastCanvasHeight
+        val offscreenY = when (anim.deckSource) {
+            DeckSource.ENEMY -> -h
+            DeckSource.PLAYER -> canvasH + h
+        }
         val t = rawT.coerceIn(0f, 1f)
         val flipEnd = DECK_FLIP_END_T
         val exitEnd = DECK_EXIT_END_T
@@ -359,42 +365,20 @@ object GameScene {
             t < flipEnd -> return deckX to deckY
             t < exitEnd -> {
                 val u = easeDeckMotion(((t - flipEnd) / (exitEnd - flipEnd)).coerceIn(0f, 1f))
-                val exitX = -w
-                val x = deckX + ((exitX - deckX) * u).toInt()
-                return x to deckY
+                val y = deckY + ((offscreenY - deckY) * u).toInt()
+                return deckX to y
             }
         }
         val u = easeDeckMotion(((t - exitEnd) / (1f - exitEnd)).coerceIn(0f, 1f))
-        return when (edge) {
-            DeckSpawnEdge.TOP -> {
-                val sx = anim.toX
-                val sy = anim.toY - h
-                val x = sx + ((anim.toX - sx) * u).toInt()
-                val y = sy + ((anim.toY - sy) * u).toInt()
-                x to y
-            }
-            DeckSpawnEdge.BOTTOM -> {
-                val sx = anim.toX
-                val sy = anim.toY + h
-                val x = sx + ((anim.toX - sx) * u).toInt()
-                val y = sy + ((anim.toY - sy) * u).toInt()
-                x to y
-            }
-            DeckSpawnEdge.LEFT -> {
-                val sx = anim.toX - w
-                val sy = anim.toY
-                val x = sx + ((anim.toX - sx) * u).toInt()
-                val y = sy + ((anim.toY - sy) * u).toInt()
-                x to y
-            }
-            DeckSpawnEdge.RIGHT -> {
-                val sx = anim.toX + w
-                val sy = anim.toY
-                val x = sx + ((anim.toX - sx) * u).toInt()
-                val y = sy + ((anim.toY - sy) * u).toInt()
-                x to y
-            }
+        val (sx, sy) = when (edge) {
+            DeckSpawnEdge.TOP -> anim.toX to -h
+            DeckSpawnEdge.BOTTOM -> anim.toX to (canvasH + h)
+            DeckSpawnEdge.LEFT -> -w to anim.toY
+            DeckSpawnEdge.RIGHT -> (canvasW + w) to anim.toY
         }
+        val x = sx + ((anim.toX - sx) * u).toInt()
+        val y = sy + ((anim.toY - sy) * u).toInt()
+        return x to y
     }
 
     /** 0..1 while the deck spawn is in the flip phase (card stays on deck); null afterward. */
@@ -1475,7 +1459,7 @@ object GameScene {
                     drawGridEnemyCard(canv, enemy, sx, sy, gc)
                 }
 
-                drawControlsCard(canv, gc)
+                drawEnemyPortraitCard(canv, gc)
                 drawSpawnQueueStrip(canv, gc)
                 drawInventoryCard(canv, gc)
             }
@@ -1484,7 +1468,7 @@ object GameScene {
 
     private fun inventoryGoldLabelScreenY(gc: GridConfig): Int {
         val top = gc.inventoryPanelTopY()
-        val lineCount = 7
+        val lineCount = 9
         val goldIdx = 5
         val y0 = top + (gc.CELL_HEIGHT - lineCount).coerceAtLeast(0) / 2
         return y0 + goldIdx
@@ -1531,6 +1515,8 @@ object GameScene {
             hudLineFit("SHD ${GameState.playerShieldDisplay()}", textMax),
             goldLine,
             keysLine,
+            hudLineFit("WASD/ARROWS move", textMax),
+            hudLineFit("I inventory  Z debug", textMax),
         )
         val y0 = top + (gc.CELL_HEIGHT - lines.size).coerceAtLeast(0) / 2
         val goldLineIdx = 5
@@ -1549,23 +1535,26 @@ object GameScene {
         }
     }
 
-    /**
-     * Key hints (I/Z) in a card above the spawn queue; same frame as [drawSpawnQueueStrip].
-     */
-    private fun drawControlsCard(canv: CPCanvas, gc: GridConfig) {
+    /** Per-floor enemy portrait shown in the top-left spawn-column card. */
+    private fun drawEnemyPortraitCard(canv: CPCanvas, gc: GridConfig) {
         val top = gc.controlsPanelTopY()
         val frameCol = CPColor(88, 88, 108, "spawn-card-frame")
         drawCardBorder(canv, gc.clusterOriginX, top, gc.CELL_WIDTH, gc.CELL_HEIGHT, 1, frameCol)
-        val bg = Option.apply(BG_COLOR)
         val z = 2
-        val title = "CONTROLS"
-        val lineInv = "I inventory"
-        val lineDbg = "Z debug menu"
-        val lines = listOf(title, lineInv, lineDbg)
-        val y0 = top + (gc.CELL_HEIGHT - lines.size).coerceAtLeast(0) / 2
-        canv.drawString(spawnPanelLineX(gc, title.length), y0, z, title, CPColor.C_STEEL_BLUE1(), bg)
-        canv.drawString(spawnPanelLineX(gc, lineInv.length), y0 + 1, z, lineInv, CPColor.C_GREY70(), bg)
-        canv.drawString(spawnPanelLineX(gc, lineDbg.length), y0 + 2, z, lineDbg, CPColor.C_GREY70(), bg)
+        val title = hudLineFit(AsciiArt.levelEnemyPortraitName(GameState.currentLevel), gc.CELL_WIDTH - 2)
+        canv.drawString(
+            spawnPanelLineX(gc, title.length),
+            top + 1,
+            z,
+            title,
+            CPColor.C_INDIAN_RED1(),
+            Option.apply(BG_COLOR),
+        )
+
+        val art = clippedArt(AsciiArt.levelEnemyPortrait(GameState.currentLevel))
+        val artX = gc.clusterOriginX + (gc.CELL_WIDTH - (art.firstOrNull()?.length ?: 0)) / 2
+        val artY = artCenterY(top, art.size)
+        drawArt(canv, art, artX, artY, z, CPColor.C_RED1())
     }
 
     /**
