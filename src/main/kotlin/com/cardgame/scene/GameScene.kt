@@ -1216,6 +1216,7 @@ object GameScene {
             }
             for (it in items) {
                 if (!it.collected && it.gridX == nx && it.gridY == ny) {
+                    if (it.type == ItemType.END_LEVEL) continue
                     markItemResolved(it)
                 }
             }
@@ -1257,6 +1258,7 @@ object GameScene {
             ItemType.WALL -> "WALL"
             ItemType.QUEST -> "QUEST"
             ItemType.REST -> "REST POINT"
+            ItemType.END_LEVEL -> "END LEVEL"
             ItemType.HAND_ARMOR -> "GUARD"
             ItemType.HELMET -> "HELM"
             ItemType.NECKLACE -> "NECK"
@@ -1303,6 +1305,10 @@ object GameScene {
             item.type == ItemType.QUEST -> "STEP"
             item.type == ItemType.REST ->
                 if (item.value > 0) "HEAL+${item.value}" else "HEAL"
+            item.type == ItemType.END_LEVEL -> {
+                val canEndLevel = GameState.isFloorClearByEnemyElimination(enemies.any { !it.defeated })
+                if (canEndLevel) "STEP" else hudLineFit("DEFEAT ALL ENEMIES", cw - 2)
+            }
             item.type == ItemType.SHOP || item.type == ItemType.GAMBLING -> "STEP"
             item.type.equipmentSlot() != null ->
                 hudLineFit(
@@ -1811,6 +1817,18 @@ object GameScene {
                     MoveCollision.NONE -> {}
                 }
 
+                val blockedEndLevel = items.find {
+                    it.type == ItemType.END_LEVEL && !it.collected &&
+                        it.gridX == newX && it.gridY == newY
+                }
+                if (blockedEndLevel != null && !GameState.isFloorClearByEnemyElimination(enemies.any { !it.defeated })) {
+                    chestLockedFlash.flash(0, 0)
+                    GameState.startObjectiveBlockedHudFlash("Defeat all enemies before ending level")
+                    tickBombs(ctx)
+                    if (GameState.gameOver) return
+                    return
+                }
+
                 GameState.playerGridX = newX
                 GameState.playerGridY = newY
 
@@ -1859,6 +1877,7 @@ object GameScene {
                     return
                 }
 
+                var reachedEndLevelCard = false
                 // Item pickup (chest gold is collected when stepping onto an opened chest)
                 for (item in items) {
                     if (!item.collected && item.gridX == newX && item.gridY == newY) {
@@ -1922,6 +1941,13 @@ object GameScene {
                             ctx.addScene(RestScene.create(), false, false, false)
                             ctx.switchScene(SceneId.REST, false)
                             return
+                        }
+                        if (item.type == ItemType.END_LEVEL) {
+                            markItemResolved(item)
+                            itemFlash.flash(newX, newY)
+                            confetti.spawn(newX, newY)
+                            reachedEndLevelCard = true
+                            continue
                         }
                         val consumeArmorFromBuild = item.type.equipmentSlot() != null
                         markItemResolved(item, consumePlayerArmorFromBuild = consumeArmorFromBuild)
@@ -1993,9 +2019,6 @@ object GameScene {
                                 GameState.playerGridX = (newX - dx).coerceIn(0, GridConfig.COLS - 1)
                                 GameState.playerGridY = (newY - dy).coerceIn(0, GridConfig.ROWS - 1)
                                 dropEliteKeyAt(newX, newY)
-                                if (GameState.isFloorClearByEnemyElimination(enemies.any { !it.defeated })) {
-                                    GameState.deferLevelCompleteForEliteKey = true
-                                }
                             }
                             confetti.spawn(newX, newY)
                             if (hadSecretRoom) {
@@ -2070,8 +2093,7 @@ object GameScene {
                 }
                 val reachedFloorClear =
                     postMove.shouldCheckLevelComplete &&
-                        GameState.isFloorClearByEnemyElimination(enemies.any { !it.defeated }) &&
-                        !GameState.deferLevelCompleteForEliteKey
+                        reachedEndLevelCard
                 when (resolvePostMoveSceneRoute(postMove.moved, onGamblingTile, onShopTile, reachedFloorClear)) {
                     PostMoveSceneRoute.MINIGAMES -> {
                         GameState.minigamesReturnScene = SceneId.GAME

@@ -1006,7 +1006,12 @@ object GameState {
         val built = LevelGenerator.buildEnemyDeckForLevel(currentLevel, ENEMY_DECK_BUILD_SIZE)
         enemyFloorEnemyQuota = built.count { it.enemyKind != null }
         enemyFloorEnemyDefeats = 0
-        enemyDeckDraw.addAll(built.shuffled())
+        if (built.isNotEmpty()) {
+            val last = built.last()
+            val leading = built.dropLast(1).shuffled()
+            enemyDeckDraw.addAll(leading)
+            enemyDeckDraw.add(last)
+        }
         persistDecksIfEnabled()
     }
 
@@ -1669,6 +1674,13 @@ object GameState {
         }
     }
 
+    /** Brief HUD warning line in the quest block for blocked objective actions (e.g. early end-level flag). */
+    fun startObjectiveBlockedHudFlash(message: String) {
+        if (message.isBlank()) return
+        hudQuestFlashText = message
+        hudQuestFlashFrames = 96
+    }
+
     fun tickMoneyHudFlash() {
         if (hudMoneyFlashFrames > 0) hudMoneyFlashFrames--
         if (hudMoneyFlashFrames <= 0) {
@@ -1802,6 +1814,8 @@ enum class ItemType(val label: String) {
     QUEST("Quest"),
     /** One-shot tile: restores a percentage of HP. */
     REST("Rest"),
+    /** Spawned when enemy deck is exhausted; stepping on it ends the floor. */
+    END_LEVEL("End Level"),
     /** Pick up to equip in [EquipmentSlot.HANDS]; armor from [ItemType.equipmentArmorValue]. */
     HAND_ARMOR("Stone Guard"),
     /** Equip to head slot. */
@@ -2122,7 +2136,8 @@ object LevelGenerator {
         val pool = ItemType.entries.filter { type ->
             !(shopOnGrid && type == ItemType.SHOP) &&
                 !(gamblingOnGrid && type == ItemType.GAMBLING) &&
-                !(type == ItemType.GAMBLING && GameState.money <= 0)
+                !(type == ItemType.GAMBLING && GameState.money <= 0) &&
+                type != ItemType.END_LEVEL
         }
         val nonHazardPool = pool.filter { it != ItemType.SPIKES && it != ItemType.BOMB }
         val hazardInPool = listOf(ItemType.SPIKES, ItemType.BOMB).filter { it in pool }
@@ -2179,6 +2194,7 @@ object LevelGenerator {
             ItemType.WALL -> 0
             ItemType.QUEST -> 0
             ItemType.REST -> 0
+            ItemType.END_LEVEL -> 0
             ItemType.HAND_ARMOR -> 1
             ItemType.HELMET,
             ItemType.NECKLACE,
@@ -2214,7 +2230,8 @@ object LevelGenerator {
                 type != ItemType.BOMB &&
                 type != ItemType.WALL &&
                 type != ItemType.QUEST &&
-                type != ItemType.REST
+                type != ItemType.REST &&
+                type != ItemType.END_LEVEL
         val secretRoom = !hasSecretRoomAlready && secretEligible && Random.nextFloat() < SECRET_ROOM_CHANCE
         return GridItem(
             type, value, gridX, gridY,
@@ -2310,7 +2327,7 @@ object LevelGenerator {
             ItemType.ATTACK_BOOST -> Random.nextInt(1, 4)
             ItemType.SHIELD -> Random.nextInt(2, 6)
             ItemType.KEY, ItemType.SHOP, ItemType.GAMBLING, ItemType.SPIKES, ItemType.BOMB,
-            ItemType.WALL, ItemType.QUEST, ItemType.REST, ItemType.HELMET, ItemType.NECKLACE,
+            ItemType.WALL, ItemType.QUEST, ItemType.REST, ItemType.END_LEVEL, ItemType.HELMET, ItemType.NECKLACE,
             ItemType.CHEST_ARMOR, ItemType.LEGGINGS, ItemType.BOOTS_ARMOR -> 0
             ItemType.HAND_ARMOR -> 1
             ItemType.CHEST -> 0
@@ -2335,7 +2352,8 @@ object LevelGenerator {
                 type != ItemType.BOMB &&
                 type != ItemType.WALL &&
                 type != ItemType.QUEST &&
-                type != ItemType.REST
+                type != ItemType.REST &&
+                type != ItemType.END_LEVEL
         val secretRoom = !hasSecretRoomAlready && secretEligible && Random.nextFloat() < SECRET_ROOM_CHANCE
         return GridItem(
             type, value, gridX, gridY,
@@ -2454,7 +2472,16 @@ object LevelGenerator {
             }
         }
         ensureMinimumQuestCardsInEnemyDeck(deck)
+        ensureEndLevelCardLast(deck)
         return deck
+    }
+
+    /**
+     * Guarantees exactly one end-level hazard and keeps it as the final draw in the enemy deck.
+     */
+    private fun ensureEndLevelCardLast(deck: MutableList<GameState.EnemyDeckCard>) {
+        deck.removeAll { it.hazardType == ItemType.END_LEVEL }
+        deck.add(GameState.EnemyDeckCard(hazardType = ItemType.END_LEVEL))
     }
 
     /**

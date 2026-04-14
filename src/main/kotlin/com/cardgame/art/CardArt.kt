@@ -42,6 +42,7 @@ object CardArt {
         ItemType.WALL to listOf(AsciiArt.HAZARD_WALL),
         ItemType.QUEST to listOf(AsciiArt.QUEST_TILE),
         ItemType.REST to listOf(AsciiArt.REST_TILE),
+        ItemType.END_LEVEL to listOf(AsciiArt.END_LEVEL_TILE),
     )
 
     private val defaultItemArt: List<String> = AsciiArt.HEALTH_POTION
@@ -84,6 +85,7 @@ object CardArt {
         ItemType.WALL -> CPColor.C_GREY70()
         ItemType.QUEST -> CPColor(165, 120, 255, "quest")
         ItemType.REST -> CPColor.C_GREEN1()
+        ItemType.END_LEVEL -> CPColor.C_GOLD1()
     }
 }
 

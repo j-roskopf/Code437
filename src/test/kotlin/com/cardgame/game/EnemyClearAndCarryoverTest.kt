@@ -12,7 +12,7 @@ class EnemyClearAndCarryoverTest {
         GameState.resetForLevel(1)
         val draw0 = GameState.enemyDeckSnapshot().draw
         assertTrue(draw0 > 0)
-        repeat(draw0) {
+        repeat((draw0 - 1).coerceAtLeast(0)) {
             val c = GameState.drawSpawnForCell(
                 1,
                 1,
@@ -23,6 +23,15 @@ class EnemyClearAndCarryoverTest {
             c.first?.let { GameState.onSpawnedItemResolved(it) }
             c.second?.let { GameState.onSpawnedEnemyResolved(it) }
         }
+        val lastCard = GameState.drawSpawnForCell(
+            1,
+            1,
+            emptyList(),
+            emptyList(),
+            spawnSourceOverride = GameState.SpawnSource.ENEMY,
+        )
+        assertEquals(ItemType.END_LEVEL, lastCard.first?.type, "Final enemy-deck card should be END_LEVEL")
+        lastCard.first?.let { GameState.onSpawnedItemResolved(it) }
         assertEquals(0, GameState.enemyDeckSnapshot().draw)
         assertTrue(GameState.enemyDeckSnapshot().discard > 0)
         val afterExhaust = GameState.drawSpawnForCell(

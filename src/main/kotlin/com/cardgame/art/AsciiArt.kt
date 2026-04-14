@@ -1017,6 +1017,25 @@ object AsciiArt {
         |                              
     """.trimMargin().lines()
 
+    val END_LEVEL_TILE = """
+        |                              
+        |   ▒█▓░▒█▒  ░▓████▓░    ▓█▒   
+        |       ▒██████████████████▒   
+        |   ▒█▓░▒██████████████████▒   
+        |   ▒█▓░▒██████████████████▒   
+        |   ▒█▓░▒██████████████████▒   
+        |   ▒█▓░▒██████████████████▒   
+        |       ▒██████████████████▒   
+        |   ▒█▓░  ▓███▒    ▒█████▒     
+        |   ▒█▓░                       
+        |   ▒█▓░                       
+        |   ▒█▓░                       
+        |   ▒█▓░                       
+        |   ▒█▓░                       
+        |   ▒█▓░                       
+        |                              
+    """.trimMargin().lines()
+
     /** Hidden trigger tile uses blank art so it is visually invisible on the grid. */
     val SECRET_HIDDEN = """
         |                              

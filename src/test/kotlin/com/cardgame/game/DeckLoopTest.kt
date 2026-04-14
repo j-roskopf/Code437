@@ -41,7 +41,8 @@ class DeckLoopTest {
             spawn.first?.let { item ->
                 if (item.type != ItemType.SPIKES && item.type != ItemType.BOMB && item.type != ItemType.WALL) {
                     val skipEnemyOnlyTile =
-                        (item.type == ItemType.CHEST || item.type == ItemType.GAMBLING) && item.spawnedFromEnemyDeck
+                        (item.type == ItemType.CHEST || item.type == ItemType.GAMBLING || item.type == ItemType.END_LEVEL) &&
+                            item.spawnedFromEnemyDeck
                     if (!skipEnemyOnlyTile) {
                         seenGood.add(item.type)
                     }

@@ -155,10 +155,10 @@ class LevelGeneratorTest {
     @Test
     fun fillAllCellsExcept_drawsExactlyTenEnemyDeckCards() = withFreshState {
         GameState.resetForLevel(1)
-        assertEquals(24, GameState.enemyDeckSnapshot().draw)
+        assertEquals(25, GameState.enemyDeckSnapshot().draw)
         assertEquals(0, GameState.enemyDeckSnapshot().discard)
         LevelGenerator.fillAllCellsExcept(0 to 0)
-        assertEquals(14, GameState.enemyDeckSnapshot().draw, "Enemy deck should lose exactly 10 cards")
+        assertEquals(15, GameState.enemyDeckSnapshot().draw, "Enemy deck should lose exactly 10 cards")
         assertEquals(0, GameState.enemyDeckSnapshot().discard)
     }
 
