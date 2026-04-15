@@ -221,6 +221,10 @@ object GameState {
 
     const val PLAYER_MAX_HEALTH = 50
 
+    /** HUD max HP: normal cap, or Boss Rush first-duel mirror cap when active. */
+    fun playerMaxHealthDisplayed(): Int =
+        if (bossRushDuelPlayerMaxHp > 0) bossRushDuelPlayerMaxHp else PLAYER_MAX_HEALTH
+
     var playerHealth = PLAYER_MAX_HEALTH
     var playerAttack = 3
     var score = 0
@@ -312,6 +316,28 @@ object GameState {
 
     /** Set before switching to the run summary scene (death vs full run win). */
     var runEndKind: RunEndKind = RunEndKind.DEATH
+
+    /** Main-menu mode: fight only checkpoint bosses in sequence (3 -> 6 -> 10). */
+    var bossRushActive: Boolean = false
+
+    /**
+     * Boss Rush only: for the first boss (Duelist), HP display uses this as max and [playerHealth] starts here.
+     * Cleared when advancing to the next checkpoint or by [resetForLevel]. Must match that boss's profile HP.
+     */
+    var bossRushDuelPlayerMaxHp: Int = 0
+
+    /** Bosses already defeated in this run; prevents replaying checkpoint battles. */
+    private val clearedBossesThisRun: MutableSet<BossId> = mutableSetOf()
+
+    fun isBossCleared(id: BossId): Boolean = id in clearedBossesThisRun
+
+    fun markBossCleared(id: BossId) {
+        clearedBossesThisRun += id
+    }
+
+    fun clearBossProgressForNewRun() {
+        clearedBossesThisRun.clear()
+    }
 
     /**
      * Cards the shop may roll for sale. [PlayerDeckCard.CHEST] is excluded — treasure chests spawn
@@ -557,6 +583,9 @@ object GameState {
 
     fun resetForLevel(level: Int) {
         currentLevel = level.coerceIn(1, LevelConfig.COUNT)
+        bossRushActive = false
+        bossRushDuelPlayerMaxHp = 0
+        clearBossProgressForNewRun()
         playerHealth = PLAYER_MAX_HEALTH
         playerAttack = 3
         score = 0
@@ -613,6 +642,32 @@ object GameState {
             ),
             origin = "game.run",
         )
+    }
+
+    fun startBossRush() {
+        resetForLevel(LevelConfig.firstBossCheckpoint())
+        bossRushActive = true
+        applyBossRushFirstBossMirrorStats()
+    }
+
+    /**
+     * First Boss Rush fight only: mirror Duelist stats ([BossScene] profile hp 30 / atk 4) so the duel is symmetric.
+     * Cleared when moving to the next rush boss via [clearBossRushDuelMirrorAfterFirstBoss].
+     */
+    private fun applyBossRushFirstBossMirrorStats() {
+        val mirrorHp = 30
+        val mirrorAtk = 4
+        bossRushDuelPlayerMaxHp = mirrorHp
+        playerHealth = mirrorHp
+        playerAttack = mirrorAtk
+    }
+
+    /** After winning the first Boss Rush bout, restore normal player combat stats for later bosses. */
+    fun clearBossRushDuelMirrorAfterFirstBoss() {
+        if (bossRushDuelPlayerMaxHp <= 0) return
+        bossRushDuelPlayerMaxHp = 0
+        playerHealth = PLAYER_MAX_HEALTH
+        playerAttack = 3
     }
 
     fun addMoney(amount: Int) {

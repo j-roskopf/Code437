@@ -2110,6 +2110,27 @@ object GameScene {
                         return
                     }
                     PostMoveSceneRoute.LEVEL_COMPLETE -> {
+                        val checkpointBoss = LevelConfig.bossForCheckpoint(GameState.currentLevel)
+                        if (checkpointBoss != null && !GameState.isBossCleared(checkpointBoss)) {
+                            SentryBootstrap.info(
+                                message = "Boss battle triggered",
+                                attributes = mapOf(
+                                    "level" to GameState.currentLevel,
+                                    "boss_id" to checkpointBoss.name,
+                                ),
+                                origin = "game.boss",
+                            )
+                            kotlin.runCatching { ctx.deleteScene(SceneId.BOSS_BATTLE) }
+                                .onFailure {
+                                    SentryBootstrap.captureCaughtError(
+                                        message = "Delete boss scene before recreate failed",
+                                        throwable = it,
+                                    )
+                                }
+                            ctx.addScene(BossScene.create(), false, false, false)
+                            ctx.switchScene(SceneId.BOSS_BATTLE, false)
+                            return
+                        }
                         SentryBootstrap.info(
                             message = "Level complete",
                             attributes = mapOf(

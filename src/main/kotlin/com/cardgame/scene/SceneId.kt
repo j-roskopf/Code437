@@ -20,6 +20,7 @@ enum class SceneId(val id: String) {
     SHOP("shop"),
     /** Shop: trim one card from the hero build (arrow grid, same style as character-select deck). */
     SHOP_DECK_TRIM("shopdecktrim"),
+    BOSS_BATTLE("bossbattle"),
     SECRET_ROOM("secretroom"),
     SLOTS("slots"),
     SICBO("sicbo"),

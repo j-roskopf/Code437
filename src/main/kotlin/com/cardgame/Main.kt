@@ -7,6 +7,7 @@ import com.cardgame.scene.LevelCompleteScene
 import com.cardgame.scene.LevelSelectScene
 import com.cardgame.scene.CharacterSelectScene
 import com.cardgame.scene.DebugMenuScene
+import com.cardgame.scene.BossScene
 import com.cardgame.game.GameState
 import com.cardgame.game.GridConfig
 import com.cardgame.scene.SceneId
@@ -92,6 +93,7 @@ fun main(args: Array<String>) {
             LevelCompleteScene.create(),
             QuestScene.create(),
             RestScene.create(),
+            BossScene.create(),
             RunSummaryScene.create(),
             GameOverScene.create(),
             InventoryScene.create(),

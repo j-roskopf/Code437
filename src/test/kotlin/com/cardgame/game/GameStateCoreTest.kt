@@ -28,6 +28,7 @@ class GameStateCoreTest {
         GameState.resetForLevel(2)
 
         assertEquals(2, GameState.currentLevel)
+        assertEquals(0, GameState.bossRushDuelPlayerMaxHp)
         assertEquals(GameState.PLAYER_MAX_HEALTH, GameState.playerHealth)
         assertEquals(3, GameState.playerAttack)
         assertEquals(0, GameState.score)

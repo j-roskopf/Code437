@@ -3,6 +3,7 @@ package com.cardgame.scene
 import com.cardgame.*
 import com.cardgame.art.AsciiArt
 import com.cardgame.game.GameState
+import com.cardgame.game.LevelConfig
 import kotlin.math.sin
 import org.cosplay.*
 import scala.Option
@@ -28,6 +29,7 @@ object MenuScene {
     private val KEY_2 = kbKey("KEY_2")
     private val KEY_3 = kbKey("KEY_3")
     private val KEY_4 = kbKey("KEY_4")
+    private val KEY_5 = kbKey("KEY_5")
     private val KEY_LO_X = kbKey("KEY_LO_X")
     private val KEY_UP_X = kbKey("KEY_UP_X")
     private val KEY_LO_Y = kbKey("KEY_LO_Y")
@@ -162,6 +164,24 @@ object MenuScene {
                         ctx.switchScene(SceneId.MINIGAMES, false)
                         handled = true
                     }
+                    key == KEY_5 -> {
+                        GameState.startBossRush()
+                        SentryBootstrap.recordNewGameStarted(
+                            startingLevel = LevelConfig.firstBossCheckpoint(),
+                            source = "menu_boss_rush",
+                            character = GameState.selectedPlayerCharacter.name,
+                        )
+                        kotlin.runCatching { ctx.deleteScene(SceneId.BOSS_BATTLE) }
+                            .onFailure {
+                                SentryBootstrap.captureCaughtError(
+                                    message = "Delete boss scene for boss rush failed",
+                                    throwable = it,
+                                )
+                            }
+                        ctx.addScene(BossScene.create(), false, false, false)
+                        ctx.switchScene(SceneId.BOSS_BATTLE, false)
+                        handled = true
+                    }
                     wantsDeletePrompt(key) -> {
                         deleteConfirmActive = true
                         handled = true
@@ -188,6 +208,7 @@ object MenuScene {
                     "[2]  Level Select" to CPColor.C_STEEL_BLUE1(),
                     "[3]  Character" to CPColor.C_STEEL_BLUE1(),
                     "[4]  Mini Games" to CPColor.C_STEEL_BLUE1(),
+                    "[5]  Boss Rush" to CPColor.C_ORANGE1(),
                     "[X]  Delete save (unlocks + decks)" to CPColor.C_ORANGE_RED1(),
                     "[Q]  Quit" to CPColor.C_GREY50(),
                 )

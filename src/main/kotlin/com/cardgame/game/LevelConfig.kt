@@ -3,6 +3,8 @@ package com.cardgame.game
 /** Score needed in the current run to clear a level (inclusive). Each step is higher than the last. */
 object LevelConfig {
     const val COUNT = 10
+    private val BOSS_CHECKPOINTS = setOf(3, 6, 10)
+    private val BOSS_CHECKPOINT_ORDER = listOf(3, 6, 10)
 
     private val TARGET_SCORES = intArrayOf(
         40, 90, 160, 250, 360, 500, 650, 850, 1100, 1400
@@ -30,6 +32,21 @@ object LevelConfig {
 
     fun targetScore(level: Int): Int =
         TARGET_SCORES[(level - 1).coerceIn(0, COUNT - 1)]
+
+    fun isBossCheckpoint(level: Int): Boolean =
+        level.coerceIn(1, COUNT) in BOSS_CHECKPOINTS
+
+    fun bossForCheckpoint(level: Int): BossId? = when (level.coerceIn(1, COUNT)) {
+        3 -> BossId.DUELIST
+        6 -> BossId.WARDEN
+        10 -> BossId.CONDUCTOR
+        else -> null
+    }
+
+    fun firstBossCheckpoint(): Int = BOSS_CHECKPOINT_ORDER.first()
+
+    fun nextBossCheckpoint(level: Int): Int? =
+        BOSS_CHECKPOINT_ORDER.firstOrNull { it > level.coerceIn(1, COUNT) }
 
     /**
      * Enemy types that can spawn on this level. [LevelGenerator] picks uniformly from this list.
