@@ -39,6 +39,36 @@ object MenuScene {
     private val KEY_LO_B = kbKey("KEY_LO_B")
     private val KEY_ESC = kbKey("KEY_ESC")
     private val KEY_Q = kbKey("KEY_LO_Q")
+    private const val MENU_MUSIC_RESOURCE = "music/folk-round-kevin-macleod-main-version-18634-03-03.mp3"
+    private var menuMusic: CPSound? = null
+    private var menuMusicPlaying = false
+
+    private fun startMenuMusic() {
+        if (menuMusicPlaying) return
+        kotlin.runCatching {
+            val snd = menuMusic ?: CPSound.apply(MENU_MUSIC_RESOURCE).also { menuMusic = it }
+            snd.loop(1200L, snd.`loop$default$2`())
+            menuMusicPlaying = true
+        }.onFailure {
+            SentryBootstrap.captureCaughtError(
+                message = "Menu music start failed",
+                throwable = it,
+            )
+        }
+    }
+
+    private fun stopMenuMusic() {
+        val snd = menuMusic ?: return
+        kotlin.runCatching {
+            snd.stop(700L)
+            menuMusicPlaying = false
+        }.onFailure {
+            SentryBootstrap.captureCaughtError(
+                message = "Menu music stop failed",
+                throwable = it,
+            )
+        }
+    }
 
     private fun isYesKey(key: CPKeyboardKey): Boolean =
         key == KEY_LO_Y ||
@@ -62,6 +92,7 @@ object MenuScene {
             key.ch() == 'X'
 
     fun create(): CPScene {
+        startMenuMusic()
         val shaders = emptyScalaSeq()
         val tags = emptyStringSet()
 
@@ -72,6 +103,7 @@ object MenuScene {
         val menuSprite = object : CPCanvasSprite("menu-root", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (ctx.isVisible()) startMenuMusic()
                 if (deleteSaveFeedbackTicks > 0) {
                     deleteSaveFeedbackTicks--
                 }
@@ -82,6 +114,10 @@ object MenuScene {
                 }
                 val key = evt.get().key()
                 var handled = false
+                fun leaveMenu(next: () -> Unit) {
+                    stopMenuMusic()
+                    next()
+                }
 
                 if (deleteConfirmActive) {
                     when {
@@ -147,21 +183,21 @@ object MenuScene {
                             }
                         ctx.addScene(GameScene.create(), false, false, false)
                         ctx.addScene(IntroStoryScene.create(), false, false, false)
-                        ctx.switchScene(SceneId.INTRO_STORY, false)
+                        leaveMenu { ctx.switchScene(SceneId.INTRO_STORY, false) }
                         handled = true
                     }
                     key == KEY_2 -> {
-                        ctx.switchScene(SceneId.LEVEL_SELECT, false)
+                        leaveMenu { ctx.switchScene(SceneId.LEVEL_SELECT, false) }
                         handled = true
                     }
                     key == KEY_3 -> {
                         GameState.characterSelectCursor = GameState.selectedPlayerCharacter.ordinal
-                        ctx.switchScene(SceneId.CHARACTER_SELECT, false)
+                        leaveMenu { ctx.switchScene(SceneId.CHARACTER_SELECT, false) }
                         handled = true
                     }
                     key == KEY_4 -> {
                         GameState.minigamesReturnScene = SceneId.MENU
-                        ctx.switchScene(SceneId.MINIGAMES, false)
+                        leaveMenu { ctx.switchScene(SceneId.MINIGAMES, false) }
                         handled = true
                     }
                     key == KEY_5 -> {
@@ -179,7 +215,7 @@ object MenuScene {
                                 )
                             }
                         ctx.addScene(BossScene.create(), false, false, false)
-                        ctx.switchScene(SceneId.BOSS_BATTLE, false)
+                        leaveMenu { ctx.switchScene(SceneId.BOSS_BATTLE, false) }
                         handled = true
                     }
                     wantsDeletePrompt(key) -> {
@@ -187,7 +223,7 @@ object MenuScene {
                         handled = true
                     }
                     key == KEY_Q -> {
-                        ctx.exitGame()
+                        leaveMenu { ctx.exitGame() }
                         handled = true
                     }
                 }
