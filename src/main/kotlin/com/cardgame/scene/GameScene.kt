@@ -15,6 +15,8 @@ import org.cosplay.*
 import scala.Option
 
 object GameScene {
+    private const val GAME_MUSIC_RESOURCE = "music/game-loop-lute.wav"
+
     /** Row indices within the unified HUD text block (above the deck). */
     internal data class HudLayout(
         val totalLineCount: Int,
@@ -80,6 +82,8 @@ object GameScene {
 
     private val BG_COLOR = CPColor(20, 20, 35, "bg")
     private val bgPx = CPPixel(' ', CPColor.C_WHITE(), Option.apply(BG_COLOR), 0)
+    private var gameMusic: CPSound? = null
+    private var gameMusicStarted = false
 
     private var items = listOf<GridItem>()
     private var enemies = listOf<EnemyCard>()
@@ -96,6 +100,51 @@ object GameScene {
     private val KEY_DOWN = kbKey("KEY_DOWN")
     private val KEY_LEFT = kbKey("KEY_LEFT")
     private val KEY_RIGHT = kbKey("KEY_RIGHT")
+
+    private fun startGameMusic() {
+        kotlin.runCatching {
+            val snd = gameMusic ?: CPSound.apply(GAME_MUSIC_RESOURCE).also { gameMusic = it }
+            if (!gameMusicStarted) {
+                snd.loop(1200L, snd.`loop$default$2`())
+                gameMusicStarted = true
+            } else if (!snd.isPlaying()) {
+                snd.play(0L, snd.`play$default$2`())
+            }
+        }.onFailure {
+            SentryBootstrap.captureCaughtError(
+                message = "Game music start failed",
+                throwable = it,
+            )
+        }
+    }
+
+    private fun pauseGameMusic() {
+        val snd = gameMusic ?: return
+        kotlin.runCatching {
+            if (snd.isPlaying()) {
+                snd.pause()
+            }
+        }.onFailure {
+            SentryBootstrap.captureCaughtError(
+                message = "Game music pause failed",
+                throwable = it,
+            )
+        }
+    }
+
+    private fun resetGameMusic() {
+        val snd = gameMusic
+        kotlin.runCatching {
+            snd?.stop(0L)
+            snd?.rewind()
+        }.onFailure {
+            SentryBootstrap.captureCaughtError(
+                message = "Game music reset failed",
+                throwable = it,
+            )
+        }
+        gameMusicStarted = false
+    }
 
     internal fun computeHudLayout(
         @Suppress("UNUSED_PARAMETER") canvasHeight: Int,
@@ -786,6 +835,7 @@ object GameScene {
     }
 
     fun create(): CPScene {
+        resetGameMusic()
         slideAnimations.clear()
         val initial = LevelGenerator.fillAllCellsExcept(Pair(0, 0))
         items = initial.first
@@ -1719,6 +1769,7 @@ object GameScene {
         return object : CPCanvasSprite("player", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (ctx.isVisible()) startGameMusic() else pauseGameMusic()
                 if (GameState.gameOver) return
 
                 val evt = ctx.kbEvent
@@ -1773,6 +1824,7 @@ object GameScene {
                         val chest = moveResolution.chest ?: return
                         GameState.tryConsumeKey(chest.tier)
                         chest.chestOpened = true
+                        GameAudio.playChestUnlock()
                         SentryBootstrap.info(
                             message = "Chest unlocked",
                             attributes = mapOf(
@@ -1816,6 +1868,13 @@ object GameScene {
                     tickBombs(ctx)
                     if (GameState.gameOver) return
                     return
+                }
+
+                val enemyHere = enemies.find {
+                    !it.defeated && it.gridX == newX && it.gridY == newY
+                }
+                if (enemyHere != null) {
+                    GameAudio.playPlayerAttack()
                 }
 
                 GameState.playerGridX = newX
@@ -1872,6 +1931,7 @@ object GameScene {
                     if (!item.collected && item.gridX == newX && item.gridY == newY) {
                         if (item.type == ItemType.CHEST && item.chestOpened && !item.chestGoldClaimed) {
                             GameState.addMoney(item.value)
+                            GameAudio.playMoneyPickup()
                             item.chestGoldClaimed = true
                             markItemResolved(item)
                             itemFlash.flash(newX, newY)
@@ -1941,6 +2001,15 @@ object GameScene {
                         val consumeArmorFromBuild = item.type.equipmentSlot() != null
                         markItemResolved(item, consumePlayerArmorFromBuild = consumeArmorFromBuild)
                         val effect = resolveItemEffect(item.type, item.value, item.tier)
+                        if (item.type == ItemType.HEALTH_POTION) {
+                            GameAudio.playPotionPickup()
+                        }
+                        if (item.type == ItemType.ATTACK_BOOST || item.type == ItemType.SHIELD) {
+                            GameAudio.playBuffPickup()
+                        }
+                        if (consumeArmorFromBuild) {
+                            GameAudio.playArmorPickup()
+                        }
                         GameState.playerHealth += effect.healthDelta
                         GameState.playerAttack += effect.attackDelta
                         if (effect.tempShieldDelta > 0) GameState.addTemporaryShield(effect.tempShieldDelta)
@@ -2292,6 +2361,10 @@ object GameScene {
         return object : CPCanvasSprite("effects", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (!ctx.isVisible()) {
+                    pauseGameMusic()
+                    return
+                }
                 confetti.update()
                 hudConfetti.update()
                 explosionFx.update()
@@ -2299,6 +2372,7 @@ object GameScene {
                 GameState.tickMoneyHudFlash()
                 GameState.tickChestLockedHudFlash()
                 if (GameState.consumeHudQuestCelebrate()) {
+                    GameAudio.playMoneyPickup()
                     val canv = ctx.canvas
                     syncClusterLayout(canv)
                     val cx = GridConfig.hudColumnLeftX
@@ -2310,6 +2384,7 @@ object GameScene {
                     hudConfetti.spawnScreen(centerX, centerY)
                 }
                 if (GameState.consumeHudMoneyCelebrate()) {
+                    GameAudio.playMoneyPickup()
                     val canv = ctx.canvas
                     syncClusterLayout(canv)
                     val gc = GridConfig

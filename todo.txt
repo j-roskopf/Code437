@@ -1,10 +1,57 @@
 music
-seed — shareable seed for same dungeon layout
-web?
-balancing
 
-player builds persistent deck
-    - shop sells cards and items
-    - shop appears at the end of a level
-each floor is a new deck - each floor's deck is pre-determined?
-equippable item to see what's coming nect?
+seed — shareable seed for same dungeon layout
+
+controller support?
+
+real fullk screen support where you can tab oput
+
+balancing between player and enemy deck - right now its random
+
+slim down enemy decks - mostly enemies, 1 wall / quest line, etc per board size
+
+wall debuff not working
+
+add logic to drop a quest at the quest selection screen and during a run
+
+do final balance of boss 1 to see power level after beating first 3 levels
+
+main quest / side quest
+ - more reward to main quest / side quest
+
+more quest -
+kill in X turns 
+
+more debuffs more wall
+- attack / def 
+
+graves instead of walls for level 2
+
+armor more expensive
+
+boss battle - after certain levels
+- two guys - two decks - 
+- volcanoes? bombs?
+- boss that knocks armor off you
+
+armor different color than wall
+
+meta currency - purple coin
+permanent stat increase
+
+---------
+
+spawn in deadly blocks after deck is exhausted 
+spawn in 'exit card'
+
+tavern
+
+deck controller -
+    regulars of the bar? haunted? what makes them weird?
+    bartender is the final boss? grabbing you drinks and introducing you to people?
+    can't pay your bar tab so you have to play to get out?
+    gambled away all of your clothes, must get all armor pieces - if you lose, you lose the pieces off your Back
+
+    'you wake up naked, disoriented in a tavern'
+
+how to balance boss battle

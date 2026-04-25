@@ -111,6 +111,7 @@ object SecretRoomScene {
                             if (won) "Perfect pick. The box clicks open."
                             else "Wrong lockbox. You salvage a few coins."
                         GameState.addMoney(reward)
+                        GameAudio.playMoneyPickup()
                         resolved = true
                     }
                     SecretMiniGameKind.HIGH_LOW -> {
@@ -136,12 +137,14 @@ object SecretRoomScene {
                             }
                             status = "Exact! The vault pays out."
                             GameState.addMoney(reward)
+                            GameAudio.playMoneyPickup()
                             resolved = true
                         } else if (highLowGuessesLeft <= 0) {
                             won = false
                             reward = Random.nextInt(8, 16)
                             status = "The lock seals. You grab leftover coins."
                             GameState.addMoney(reward)
+                            GameAudio.playMoneyPickup()
                             resolved = true
                         } else {
                             status = if (guess < highLowTarget) "Too low." else "Too high."

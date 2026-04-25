@@ -13,10 +13,40 @@ import scala.Option
 object RestScene {
     private val BG_COLOR = CPColor(12, 14, 28, "rest-bg")
     private val bgPx = CPPixel(' ', CPColor.C_WHITE(), Option.apply(BG_COLOR), 0)
+    private const val REST_MUSIC_RESOURCE = "music/campfire-eerie.mp3"
 
     private val KEY_R = kbKey("KEY_LO_R")
     private val KEY_B = kbKey("KEY_LO_B")
     private val KEY_ESC = kbKey("KEY_ESC")
+    private var restMusic: CPSound? = null
+    private var restMusicPlaying = false
+
+    private fun startRestMusic() {
+        if (restMusicPlaying) return
+        kotlin.runCatching {
+            val snd = restMusic ?: CPSound.apply(REST_MUSIC_RESOURCE).also { restMusic = it }
+            snd.loop(1200L, snd.`loop$default$2`())
+            restMusicPlaying = true
+        }.onFailure {
+            SentryBootstrap.captureCaughtError(
+                message = "Rest music start failed",
+                throwable = it,
+            )
+        }
+    }
+
+    private fun stopRestMusic() {
+        val snd = restMusic ?: return
+        kotlin.runCatching {
+            snd.stop(700L)
+            restMusicPlaying = false
+        }.onFailure {
+            SentryBootstrap.captureCaughtError(
+                message = "Rest music stop failed",
+                throwable = it,
+            )
+        }
+    }
 
     private fun centerStringX(text: String, canvasWidth: Int): Int =
         (canvasWidth / 2 - text.length / 2).coerceAtLeast(0)
@@ -29,6 +59,7 @@ object RestScene {
         val contentSprite = object : CPCanvasSprite("rest-content", emptyScalaSeq(), emptyStringSet()) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (ctx.isVisible()) startRestMusic() else stopRestMusic()
                 frame++
             }
 
@@ -96,11 +127,13 @@ object RestScene {
                             if (lastHealApplied > 0) GameState.playerHealth += lastHealApplied
                             rested = true
                         } else {
+                            stopRestMusic()
                             ctx.switchScene(SceneId.GAME, false)
                         }
                     }
                     KEY_B, KEY_ESC -> {
                         if (!rested) GameState.takePendingRestTileBonusHeal()
+                        stopRestMusic()
                         ctx.switchScene(SceneId.GAME, false)
                     }
                     else -> {}

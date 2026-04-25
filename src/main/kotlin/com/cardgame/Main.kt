@@ -66,6 +66,7 @@ fun main(args: Array<String>) {
     )
 
     CPEngine.init(gameInfo, emuTerm)
+    GameAudio.preload()
 
     GameState.loadDeckPersistenceAtStartup()
     Runtime.getRuntime().addShutdownHook(

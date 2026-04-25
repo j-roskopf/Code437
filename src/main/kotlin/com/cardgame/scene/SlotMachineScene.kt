@@ -221,6 +221,7 @@ object SlotMachineScene {
             }
             notePeak()
             spinning = true
+            GameAudio.startSlotSpinLoop()
             statusMsg = ""
             statusIsWin = false
             winningPaylines = emptySet()
@@ -246,12 +247,14 @@ object SlotMachineScene {
 
         fun finishSpin() {
             spinning = false
+            GameAudio.stopSlotSpinLoop()
             fun symAt(col: Int, row: Int): SlotMachineArt.Symbol =
                 strips[col][(topIndex[col] + row + STRIP_LEN) % STRIP_LEN]
 
             val bet = BETS[betIndex]
             val (win, paylineHits) = SlotMachineRules.collectPaylineHits(bet, ::symAt)
             if (win > 0) {
+                GameAudio.playCasinoWin()
                 if (useRunGold) {
                     GameState.addMoney(win)
                     gold = GameState.money
@@ -265,6 +268,7 @@ object SlotMachineScene {
                 statusMsg = "WIN +$win gp  $detail"
                 statusIsWin = true
             } else {
+                GameAudio.playCasinoLose()
                 winningPaylines = emptySet()
                 statusMsg = "No win"
                 statusIsWin = false
@@ -443,6 +447,10 @@ object SlotMachineScene {
         val logicSprite = object : CPCanvasSprite("slots-logic", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (!ctx.isVisible()) {
+                    GameAudio.stopSlotSpinLoop()
+                    return
+                }
                 if (!spinning) return
 
                 var allLocked = true
@@ -489,6 +497,7 @@ object SlotMachineScene {
                     KEY_3 -> betIndex = 2
                     KEY_SPACE -> if (gold > 0) beginSpin()
                     KEY_B, KEY_ESC -> {
+                        GameAudio.stopSlotSpinLoop()
                         if (!useRunGold) MiniGameScores.recordSlotsPeakGold(sessionPeak)
                         ctx.switchScene(SceneId.MINIGAMES, false)
                         kotlin.runCatching { ctx.deleteScene(SceneId.SLOTS) }

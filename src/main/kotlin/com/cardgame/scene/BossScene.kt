@@ -70,7 +70,6 @@ object BossScene {
     private val PANEL_BORDER = CPColor(180, 200, 255, "boss-panel-border")
     private val ARENA_SKY = CPColor(40, 55, 95, "boss-arena-sky")
     private val ARENA_GROUND = CPColor(35, 40, 55, "boss-arena-ground")
-
     private val KEY_SPACE = kbKey("KEY_SPACE")
     private val KEY_Q = kbKey("KEY_LO_Q")
     private val KEY_ESC = kbKey("KEY_ESC")
@@ -108,6 +107,20 @@ object BossScene {
         if (prev == DuelIntent.DEFEND && base == DuelIntent.DEFEND) return DuelIntent.ATTACK
         return base
     }
+
+    /**
+     * Duelist-specific authored pattern:
+     * opens guarded, usually converts guard into a strike, and only occasionally resets tempo early.
+     */
+    private fun rollDuelistIntent(round: Int, prev: DuelIntent?, bossGuardStacks: Int): DuelIntent =
+        when {
+            round <= 1 -> DuelIntent.DEFEND
+            bossGuardStacks >= 2 -> DuelIntent.ATTACK
+            prev == DuelIntent.DEFEND -> DuelIntent.ATTACK
+            prev == DuelIntent.ATTACK && round % 4 == 0 -> DuelIntent.DEFEND
+            prev == DuelIntent.ATTACK && Random.nextInt(100) < 30 -> DuelIntent.DEFEND
+            else -> DuelIntent.ATTACK
+        }
 
     private fun centerStringX(text: String, canvasWidth: Int): Int =
         (canvasWidth / 2 - text.length / 2).coerceAtLeast(0)
@@ -177,6 +190,31 @@ object BossScene {
                 atk
             }
         }
+
+        fun nextBossIntent(roundNumber: Int, prev: DuelIntent?, guardStacks: Int): DuelIntent =
+            if (profile.id == BossId.DUELIST) {
+                rollDuelistIntent(roundNumber, prev, guardStacks)
+            } else {
+                rollIntent(prev)
+            }
+
+        fun previewIncomingDamage(action: DuelAction): Int {
+            var remaining = (profile.attack + bossGuardStacks).coerceAtLeast(0)
+            if (GameState.temporaryShield > 0 && remaining > 0) {
+                remaining -= minOf(remaining, GameState.temporaryShield)
+            }
+            remaining = (remaining - GameState.totalEquipmentArmor()).coerceAtLeast(0)
+            val defenseReduction = if (action == DuelAction.DEFEND) 1 else 0
+            return (remaining - defenseReduction).coerceAtLeast(0)
+        }
+
+        fun previewAttackIntoGuardBossDamage(): Int {
+            val atk = (GameState.effectivePlayerAttack() + riposteBonus).coerceAtLeast(1)
+            return (atk * 0.4f).roundToInt().coerceAtLeast(1)
+        }
+
+        fun previewAttackIntoGuardRecoil(): Int =
+            (1 + bossGuardStacks).coerceAtMost(3)
 
         /** JRPG command cursor: 0 = Attack, 1 = Defend */
         var duelMenuSel = 0
@@ -318,7 +356,7 @@ object BossScene {
             round++
             playerAction = null
             duelMenuSel = 0
-            bossIntent = rollIntent(prev = bossIntent)
+            bossIntent = nextBossIntent(round, bossIntent, bossGuardStacks)
             phase = DuelPhase.PLAYER_CHOICE
         }
 
@@ -359,6 +397,9 @@ object BossScene {
                         didPlayerStrikeImpact = true
                         impactFlashParryStyle = false
                         impactFlashFrames = 3
+                        if (strikeDamageToBossPreview() > 0) {
+                            GameAudio.playPlayerAttack()
+                        }
                         if (useDuelistUi) {
                             val sd = strikeDamageToBossPreview()
                             if (sd > 0) {
@@ -587,7 +628,6 @@ object BossScene {
                 }
                 val enemyDrawX = (enemyBaseX + enemyLunge).coerceIn(enemyBaseX, enemyBaseX + enemyMaxLunge)
                 val playerDrawX = (playerBaseX - playerLunge).coerceIn(playerBaseX - playerMaxLunge, playerBaseX)
-
                 val enemyFg = CPColor.C_INDIAN_RED1()
                 val playerFg = GameState.selectedPlayerCharacter.spriteColor
 
@@ -709,8 +749,14 @@ object BossScene {
                 }
 
                 val tele = when (bossIntent) {
-                    DuelIntent.ATTACK -> "FOE: strike"
-                    DuelIntent.DEFEND -> "FOE: guard"
+                    DuelIntent.ATTACK -> {
+                        val raw = profile.attack + bossGuardStacks
+                        "FOE: strike  raw $raw"
+                    }
+                    DuelIntent.DEFEND -> {
+                        val recoil = previewAttackIntoGuardRecoil()
+                        "FOE: guard  chip + recoil $recoil"
+                    }
                 }
                 canv.drawString(boxLeft + 2, arenaTop, 3, tele, CPColor.C_GREY70(), Option.empty())
 
@@ -748,10 +794,32 @@ object BossScene {
                         }
                     }
                     DuelPhase.PLAYER_CHOICE -> {
+                        val attackPreview = when (bossIntent) {
+                            DuelIntent.ATTACK -> {
+                                val deal = strikeDamageToBossPreview()
+                                val take = previewIncomingDamage(DuelAction.ATTACK)
+                                "Attack  Deal $deal, take $take"
+                            }
+                            DuelIntent.DEFEND -> {
+                                val deal = previewAttackIntoGuardBossDamage()
+                                val recoil = previewAttackIntoGuardRecoil()
+                                "Attack  Chip $deal, recoil $recoil"
+                            }
+                        }
+                        val defendPreview = when (bossIntent) {
+                            DuelIntent.ATTACK -> {
+                                val take = previewIncomingDamage(DuelAction.DEFEND)
+                                "Defend  Wide parry, miss = take $take"
+                            }
+                            DuelIntent.DEFEND -> {
+                                val nextAtk = profile.attack + (bossGuardStacks + 1).coerceAtMost(3)
+                                "Defend  Yield tempo, foe strike -> $nextAtk"
+                            }
+                        }
                         val atkLine =
-                            (if (duelMenuSel == 0) "> " else "  ") + "Attack"
+                            (if (duelMenuSel == 0) "> " else "  ") + clipMenu(attackPreview)
                         val defLine =
-                            (if (duelMenuSel == 1) "> " else "  ") + "Defend"
+                            (if (duelMenuSel == 1) "> " else "  ") + clipMenu(defendPreview)
                         canv.drawString(cmdX, menuRow, 2, atkLine, if (duelMenuSel == 0) CPColor.C_WHITE() else CPColor.C_GREY70(), Option.apply(PANEL_BG))
                         menuRow += 1
                         canv.drawString(cmdX, menuRow, 2, defLine, if (duelMenuSel == 1) CPColor.C_WHITE() else CPColor.C_GREY70(), Option.apply(PANEL_BG))
@@ -766,14 +834,14 @@ object BossScene {
                         if (bossIntent == DuelIntent.ATTACK) {
                             canv.drawString(
                                 cmdX, menuRow, 2,
-                                clipMenu("Defend = wider parry timing."),
+                                clipMenu("Duelist pattern: guard usually becomes strike."),
                                 CPColor.C_GREY70(),
                                 Option.apply(PANEL_BG),
                             )
                         } else {
                             canv.drawString(
                                 cmdX, menuRow, 2,
-                                clipMenu("Foe guards — weak hits + recoil."),
+                                clipMenu("Guard now usually means a heavier strike next."),
                                 CPColor.C_GREY70(),
                                 Option.apply(PANEL_BG),
                             )

@@ -129,6 +129,7 @@ object SicBoScene {
             }
             notePeak()
             rolling = true
+            GameAudio.startDiceShakeLoop()
             statusMsg = ""
             statusWin = false
             for (i in 0 until 3) {
@@ -141,6 +142,7 @@ object SicBoScene {
 
         fun finishRoll() {
             rolling = false
+            GameAudio.stopDiceShakeLoop()
             val bet = BETS[betIndex]
             val d1 = finalFace[0]
             val d2 = finalFace[1]
@@ -150,6 +152,7 @@ object SicBoScene {
             val pay = SicBoRules.payoutOnWin(bet, wager, d1, d2, d3)
             val lbl = SicBoRules.wagerShortLabel(wager)
             if (pay != null) {
+                GameAudio.playCasinoWin()
                 if (useRunGold) {
                     GameState.addMoney(pay)
                     gold = GameState.money
@@ -161,6 +164,7 @@ object SicBoScene {
                 val profit = pay - bet
                 statusMsg = "WIN +$profit gp  $lbl  sum=$sum  $d1-$d2-$d3"
             } else {
+                GameAudio.playCasinoLose()
                 statusWin = false
                 val sumBet = wager is SicBoRules.Wager.SumBig ||
                     wager is SicBoRules.Wager.SumSmall ||
@@ -340,6 +344,10 @@ object SicBoScene {
         val logicSprite = object : CPCanvasSprite("sicbo-logic", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (!ctx.isVisible()) {
+                    GameAudio.stopDiceShakeLoop()
+                    return
+                }
                 if (!rolling) return
                 var allLocked = true
                 for (i in 0 until 3) {
@@ -386,6 +394,7 @@ object SicBoScene {
                     KEY_5 -> betIndex = 2
                     KEY_SPACE -> if (gold > 0) beginRoll()
                     KEY_B, KEY_ESC -> {
+                        GameAudio.stopDiceShakeLoop()
                         if (!useRunGold) MiniGameScores.recordSicboPeakGold(sessionPeak)
                         ctx.switchScene(SceneId.MINIGAMES, false)
                         kotlin.runCatching { ctx.deleteScene(SceneId.SICBO) }
