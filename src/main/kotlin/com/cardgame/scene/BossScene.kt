@@ -18,9 +18,9 @@ import scala.Option
 private enum class DuelPhase {
     INTRO,
     PLAYER_CHOICE,
-    /** Player resolves their chosen action first (lunge or SHD). */
+    /** Player resolves their chosen action first (attack cue or SHD). */
     PLAYER_ACTION_ANIM,
-    /** After the player animation completes, the foe resolves (lunge + parry window, or SHD). */
+    /** After the player animation completes, the foe resolves (attack beat + parry window, or SHD). */
     ENEMY_ACTION_ANIM,
     VICTORY,
     DEFEAT,
@@ -136,12 +136,15 @@ object BossScene {
     private fun px(ch: Char, fg: CPColor, bg: CPColor = BG_COLOR): CPPixel =
         CPPixel(ch, fg, Option.apply(bg), 0)
 
-    fun create(): CPScene {
+    private fun bossRushSceneId(level: Int): String =
+        "${SceneId.BOSS_BATTLE.id}-rush-$level"
+
+    fun create(sceneId: String = SceneId.BOSS_BATTLE.id): CPScene {
         val profile = profileForLevel(GameState.currentLevel)
         val bossName = profile.id.displayName
         val useDuelistUi = profile.id == BossId.DUELIST
         val mechanicsNote = when (profile.id) {
-            BossId.DUELIST -> "Duel — read the lunge, parry on contact."
+            BossId.DUELIST -> "Duel — read the strike, parry on contact."
             BossId.WARDEN -> "Mode: Duel (hazard phase coming next)"
             BossId.CONDUCTOR -> "Mode: Duel (rhythm phase coming next)"
         }
@@ -159,7 +162,7 @@ object BossScene {
         /** Turn animation frame while actions resolve. */
         var actionFrame = 0
         var actionFramesTotal = 24
-        /** Hit band as fraction of lunge [0,1] when SPACE counts as a parry. */
+        /** Hit band as fraction of the attack beat [0,1] when SPACE counts as a parry. */
         var parryHitStart = 0.42f
         var parryHitEnd = 0.58f
         var parryResolved = false
@@ -179,7 +182,7 @@ object BossScene {
         var dmgFloatPlayerFrames = 0
         var didPlayerStrikeImpact = false
 
-        /** Damage from your strike this round (before riposte); used for floater on player lunge impact. */
+        /** Damage from your strike this round (before riposte); used for floater on player impact. */
         fun strikeDamageToBossPreview(): Int {
             val action = playerAction ?: return 0
             if (action != DuelAction.ATTACK) return 0
@@ -504,15 +507,16 @@ object BossScene {
                                 if (nextCheckpoint != null) {
                                     GameState.clearBossRushDuelMirrorAfterFirstBoss()
                                     GameState.currentLevel = nextCheckpoint
-                                    kotlin.runCatching { ctx.deleteScene(SceneId.BOSS_BATTLE) }
+                                    val nextSceneId = bossRushSceneId(nextCheckpoint)
+                                    kotlin.runCatching { ctx.deleteScene(nextSceneId) }
                                         .onFailure {
                                             SentryBootstrap.captureCaughtError(
-                                                message = "Delete boss scene during boss rush transition failed",
+                                                message = "Delete stale boss rush scene failed",
                                                 throwable = it,
                                             )
                                         }
-                                    ctx.addScene(BossScene.create(), false, false, false)
-                                    ctx.switchScene(SceneId.BOSS_BATTLE, false)
+                                    ctx.addScene(BossScene.create(nextSceneId), false, false, false)
+                                    ctx.switchScene(nextSceneId, false)
                                 } else {
                                     GameState.runEndKind = RunEndKind.VICTORY
                                     GameState.bossRushActive = false
@@ -607,27 +611,8 @@ object BossScene {
                 val rowBase = arenaTop + ((innerH - max(ph, eh)) / 2).coerceAtLeast(0)
                 val enemyBaseX = boxLeft + 3
                 val playerBaseX = (boxRight - pw - 3).coerceAtLeast(enemyBaseX + ew + 6)
-                val enemyMaxLunge = (playerBaseX - ew - 2 - enemyBaseX).coerceAtLeast(0)
-                val playerMaxLunge = (playerBaseX - (enemyBaseX + ew + 2)).coerceAtLeast(0)
-                val inAnim = phase == DuelPhase.PLAYER_ACTION_ANIM || phase == DuelPhase.ENEMY_ACTION_ANIM
-                val actionT = if (inAnim) actionProgress() else 0f
-                val lungePulse = if (inAnim) {
-                    if (actionT <= 0.5f) actionT * 2f else (1f - actionT) * 2f
-                } else {
-                    0f
-                }
-                val enemyLunge = if (bossIntent == DuelIntent.ATTACK && phase == DuelPhase.ENEMY_ACTION_ANIM) {
-                    (enemyMaxLunge * lungePulse).roundToInt()
-                } else {
-                    0
-                }
-                val playerLunge = if (playerAction == DuelAction.ATTACK && phase == DuelPhase.PLAYER_ACTION_ANIM) {
-                    (playerMaxLunge * lungePulse).roundToInt()
-                } else {
-                    0
-                }
-                val enemyDrawX = (enemyBaseX + enemyLunge).coerceIn(enemyBaseX, enemyBaseX + enemyMaxLunge)
-                val playerDrawX = (playerBaseX - playerLunge).coerceIn(playerBaseX - playerMaxLunge, playerBaseX)
+                val enemyDrawX = enemyBaseX
+                val playerDrawX = playerBaseX
                 val enemyFg = CPColor.C_INDIAN_RED1()
                 val playerFg = GameState.selectedPlayerCharacter.spriteColor
 
@@ -644,6 +629,96 @@ object BossScene {
                             canv.drawPixel(px(ch, playerFg, ARENA_GROUND), playerDrawX + col, rowBase + row, 2)
                         }
                     }
+                }
+
+                fun drawAttackCue(
+                    startX: Int,
+                    endX: Int,
+                    y: Int,
+                    head: Char,
+                    fg: CPColor,
+                    t: Float,
+                    impactStart: Float,
+                    impactEnd: Float,
+                ) {
+                    val lo = minOf(startX, endX).coerceAtLeast(boxLeft + 1)
+                    val hi = maxOf(startX, endX).coerceAtMost(boxRight - 1)
+                    if (lo > hi || y !in arenaTop..arenaBottom) return
+                    val clampedT = t.coerceIn(0f, 1f)
+                    val impactT = ((impactStart + impactEnd) / 2f).coerceIn(0.01f, 0.99f)
+                    val travelT = (clampedT / impactT).coerceIn(0f, 1f)
+                    val center = (startX + ((endX - startX) * travelT)).roundToInt().coerceIn(lo, hi)
+                    val dir = if (endX >= startX) 1 else -1
+                    val trailLen = when {
+                        travelT < 0.25f -> 2
+                        travelT < 0.65f -> 4
+                        else -> 6
+                    }
+                    if (clampedT <= impactEnd) {
+                        for (dy in -1..1) {
+                            val py = y + dy
+                            if (py !in arenaTop..arenaBottom) continue
+                            for (i in 0 until trailLen) {
+                                val x = center - dir * i
+                                if (x in lo..hi) {
+                                    val ch = when {
+                                        i == 0 -> head
+                                        dy == 0 -> '='
+                                        else -> '-'
+                                    }
+                                    canv.drawPixel(px(ch, fg, ARENA_GROUND), x, py, 4)
+                                }
+                            }
+                        }
+                    }
+                    if (clampedT in impactStart..impactEnd) {
+                        val impactX = endX.coerceIn(lo, hi)
+                        val impactRows = listOf(
+                            "..*..",
+                            ".***.",
+                            "**#**",
+                            ".***.",
+                            "..*..",
+                        )
+                        for ((ry, row) in impactRows.withIndex()) {
+                            val py = y + ry - 2
+                            if (py !in arenaTop..arenaBottom) continue
+                            for ((cx, ch) in row.withIndex()) {
+                                if (ch == '.') continue
+                                val px = impactX + cx - 2
+                                if (px in lo..hi) {
+                                    val sparkColor = if (ch == '#') CPColor.C_WHITE() else fg
+                                    canv.drawPixel(px(ch, sparkColor, ARENA_GROUND), px, py, 5)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val cueY = (rowBase + max(ph, eh) / 2).coerceIn(arenaTop, arenaBottom)
+                if (phase == DuelPhase.PLAYER_ACTION_ANIM && playerAction == DuelAction.ATTACK) {
+                    drawAttackCue(
+                        startX = playerDrawX - 1,
+                        endX = enemyDrawX + ew,
+                        y = cueY,
+                        head = '<',
+                        fg = CPColor.C_GOLD1(),
+                        t = actionProgress(),
+                        impactStart = 0.46f,
+                        impactEnd = 0.58f,
+                    )
+                }
+                if (phase == DuelPhase.ENEMY_ACTION_ANIM && bossIntent == DuelIntent.ATTACK) {
+                    drawAttackCue(
+                        startX = enemyDrawX + ew,
+                        endX = playerDrawX - 1,
+                        y = cueY,
+                        head = '>',
+                        fg = CPColor.C_ORANGE_RED1(),
+                        t = actionProgress(),
+                        impactStart = parryHitStart,
+                        impactEnd = parryHitEnd,
+                    )
                 }
 
                 /** Full-size shield drawn above the sprite band without changing fighter row layout. */
@@ -866,7 +941,7 @@ object BossScene {
                         menuRow += 1
                         canv.drawString(
                             cmdX, menuRow, 2,
-                            clipMenu("Attack = lunge. Defend = shield."),
+                            clipMenu("Attack = timed flash. Defend = shield."),
                             CPColor.C_GREY70(),
                             Option.apply(PANEL_BG),
                         )
@@ -943,7 +1018,7 @@ object BossScene {
         }
 
         return CPScene(
-            SceneId.BOSS_BATTLE.id,
+            sceneId,
             Option.empty(),
             bgPx,
             scalaSeqOf(displaySprite, inputSprite)

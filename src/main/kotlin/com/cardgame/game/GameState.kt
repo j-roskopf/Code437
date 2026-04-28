@@ -1981,6 +1981,13 @@ object GridConfig {
     val MIN_EMUTERM_ROWS: Int
         get() = clusterPixelHeight(hudTextLineCount(QUEST_HUD_LINES_WORST_CASE))
 
+    /** Windowed mode starts here and should not be resizable below this playable footprint. */
+    val MIN_WINDOWED_COLS: Int
+        get() = 246
+
+    val MIN_WINDOWED_ROWS: Int
+        get() = 70
+
     /** HUD text lines (approx.): meta + quest block + footer (I/Z live on the controls card). */
     fun hudTextLineCount(questHudLineCount: Int): Int =
         5 + questHudLineCount.coerceAtLeast(1) + 2

@@ -132,7 +132,7 @@ object GameScene {
         }
     }
 
-    private fun resetGameMusic() {
+    internal fun stopAndResetGameMusic() {
         val snd = gameMusic
         kotlin.runCatching {
             snd?.stop(0L)
@@ -835,7 +835,7 @@ object GameScene {
     }
 
     fun create(): CPScene {
-        resetGameMusic()
+        stopAndResetGameMusic()
         slideAnimations.clear()
         val initial = LevelGenerator.fillAllCellsExcept(Pair(0, 0))
         items = initial.first

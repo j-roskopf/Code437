@@ -30,6 +30,7 @@ object MenuScene {
     private val KEY_3 = kbKey("KEY_3")
     private val KEY_4 = kbKey("KEY_4")
     private val KEY_5 = kbKey("KEY_5")
+    private val KEY_6 = kbKey("KEY_6")
     private val KEY_LO_X = kbKey("KEY_LO_X")
     private val KEY_UP_X = kbKey("KEY_UP_X")
     private val KEY_LO_Y = kbKey("KEY_LO_Y")
@@ -45,6 +46,7 @@ object MenuScene {
 
     private fun startMenuMusic() {
         if (menuMusicPlaying) return
+        GameScene.stopAndResetGameMusic()
         kotlin.runCatching {
             val snd = menuMusic ?: CPSound.apply(MENU_MUSIC_RESOURCE).also { menuMusic = it }
             snd.loop(1200L, snd.`loop$default$2`())
@@ -218,6 +220,10 @@ object MenuScene {
                         leaveMenu { ctx.switchScene(SceneId.BOSS_BATTLE, false) }
                         handled = true
                     }
+                    key == KEY_6 -> {
+                        leaveMenu { ctx.switchScene(SceneId.SETTINGS, false) }
+                        handled = true
+                    }
                     wantsDeletePrompt(key) -> {
                         deleteConfirmActive = true
                         handled = true
@@ -245,6 +251,7 @@ object MenuScene {
                     "[3]  Character" to CPColor.C_STEEL_BLUE1(),
                     "[4]  Mini Games" to CPColor.C_STEEL_BLUE1(),
                     "[5]  Boss Rush" to CPColor.C_ORANGE1(),
+                    "[6]  Settings" to CPColor.C_CYAN1(),
                     "[X]  Delete save (unlocks + decks)" to CPColor.C_ORANGE_RED1(),
                     "[Q]  Quit" to CPColor.C_GREY50(),
                 )

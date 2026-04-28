@@ -10,6 +10,7 @@ enum class SceneId(val id: String) {
     MINIGAMES("minigames"),
     CHARACTER_SELECT("characterselect"),
     LEVEL_SELECT("levelselect"),
+    SETTINGS("settings"),
     LEVEL_COMPLETE("levelcomplete"),
     QUEST("quest"),
     REST("rest"),

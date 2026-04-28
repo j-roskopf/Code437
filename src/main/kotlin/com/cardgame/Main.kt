@@ -8,19 +8,25 @@ import com.cardgame.scene.LevelSelectScene
 import com.cardgame.scene.CharacterSelectScene
 import com.cardgame.scene.DebugMenuScene
 import com.cardgame.scene.BossScene
+import com.cardgame.game.DisplayModeSetting
 import com.cardgame.game.GameState
 import com.cardgame.game.GridConfig
+import com.cardgame.game.UserSettings
 import com.cardgame.scene.SceneId
 import com.cardgame.scene.MenuScene
 import com.cardgame.scene.MiniGamesHubScene
 import com.cardgame.scene.QuestScene
 import com.cardgame.scene.RestScene
 import com.cardgame.scene.RunSummaryScene
+import com.cardgame.scene.SettingsScene
 import org.cosplay.*
 import scala.Option
 
-private fun wantsWindowed(args: Array<String>): Boolean =
+private fun cliWantsWindowed(args: Array<String>): Boolean =
     args.any { it == "windowed" || it == "--windowed" }
+
+private fun cliWantsFullscreen(args: Array<String>): Boolean =
+    args.any { it == "fullscreen" || it == "--fullscreen" }
 
 private fun disablesFullscreenHook(args: Array<String>): Boolean =
     args.any { it == "--no-fullscreen-hook" } ||
@@ -40,11 +46,24 @@ private fun resolvedEmutermFontSize(): String =
  * and side HUD margins are not clipped. Pixel size still comes from font metrics; default font targets 1920×1080
  * (see Gradle `COSPLAY_EMUTERM_FONT_SIZE`).
  *
- * Pass `windowed` or `--windowed` for CosPlay’s built-in default (100×50).
+ * Start at the minimum playable character grid. Windowed mode also uses this as its shrink limit.
  */
-private fun emuInitDim(args: Array<String>): Option<CPDim> =
-    if (wantsWindowed(args)) Option.empty()
-    else Option.apply(CPDim.apply(GridConfig.MIN_EMUTERM_COLS, GridConfig.MIN_EMUTERM_ROWS))
+private fun emuInitDim(mode: DisplayModeSetting): Option<CPDim> {
+    val cols =
+        if (mode == DisplayModeSetting.WINDOWED) GridConfig.MIN_WINDOWED_COLS
+        else GridConfig.MIN_EMUTERM_COLS
+    val rows =
+        if (mode == DisplayModeSetting.WINDOWED) GridConfig.MIN_WINDOWED_ROWS
+        else GridConfig.MIN_EMUTERM_ROWS
+    return Option.apply(CPDim.apply(cols, rows))
+}
+
+private fun resolvedDisplayMode(args: Array<String>): DisplayModeSetting =
+    when {
+        cliWantsWindowed(args) -> DisplayModeSetting.WINDOWED
+        cliWantsFullscreen(args) -> DisplayModeSetting.FULLSCREEN
+        else -> UserSettings.displayMode
+    }
 
 fun main(args: Array<String>) {
     SentryBootstrap.init(args)
@@ -55,12 +74,13 @@ fun main(args: Array<String>) {
         System.setProperty("COSPLAY_EMUTERM_FONT_SIZE", resolvedEmutermFontSize())
     }
     val emuTerm = System.console() == null || args.contains("emuterm")
+    val displayMode = resolvedDisplayMode(args)
 
     val gameInfo = CPGameInfo(
         "code-437",
         "Code 437",
         "1.0.0",
-        emuInitDim(args),
+        emuInitDim(displayMode),
         CPColor(20, 20, 35, "bg"),
         Option.empty()
     )
@@ -81,8 +101,8 @@ fun main(args: Array<String>) {
         }
     )
 
-    if (emuTerm && !wantsWindowed(args) && wantsFullscreenHook(args)) {
-        EmutermFullscreen.startWatcher("Code 437")
+    if (emuTerm && wantsFullscreenHook(args)) {
+        EmutermFullscreen.startWatcher("Code 437", displayMode)
     }
 
     try {
@@ -98,6 +118,7 @@ fun main(args: Array<String>) {
             RunSummaryScene.create(),
             GameOverScene.create(),
             InventoryScene.create(),
+            SettingsScene.create(),
             DebugMenuScene.create()
         )
         CPEngine.startGame(SceneId.MENU.id, scenes)

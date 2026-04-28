@@ -38,6 +38,7 @@ application {
         "--add-exports", "javafx.graphics/com.sun.javafx.application=ALL-UNNAMED",
         "--add-exports", "javafx.graphics/com.sun.javafx.tk=ALL-UNNAMED",
         "--add-exports", "javafx.base/com.sun.javafx=ALL-UNNAMED",
+        "--add-exports", "java.desktop/com.apple.eawt=ALL-UNNAMED",
     )
 }
 
@@ -109,6 +110,7 @@ tasks.register<Exec>("packageNative") {
             "--add-exports=javafx.graphics/com.sun.javafx.application=ALL-UNNAMED",
             "--add-exports=javafx.graphics/com.sun.javafx.tk=ALL-UNNAMED",
             "--add-exports=javafx.base/com.sun.javafx=ALL-UNNAMED",
+            "--add-exports=java.desktop/com.apple.eawt=ALL-UNNAMED",
         )
 
         val cmd = mutableListOf(
