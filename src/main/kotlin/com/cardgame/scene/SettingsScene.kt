@@ -2,6 +2,7 @@ package com.cardgame.scene
 
 import com.cardgame.*
 import com.cardgame.game.DisplayModeSetting
+import com.cardgame.game.GameState
 import com.cardgame.game.GridConfig
 import com.cardgame.game.UserSettings
 import com.cardgame.platform.EmutermFullscreen
@@ -14,6 +15,12 @@ object SettingsScene {
 
     private val KEY_1 = kbKey("KEY_1")
     private val KEY_2 = kbKey("KEY_2")
+    private val KEY_LO_X = kbKey("KEY_LO_X")
+    private val KEY_UP_X = kbKey("KEY_UP_X")
+    private val KEY_LO_Y = kbKey("KEY_LO_Y")
+    private val KEY_UP_Y = kbKey("KEY_UP_Y")
+    private val KEY_LO_N = kbKey("KEY_LO_N")
+    private val KEY_UP_N = kbKey("KEY_UP_N")
     private val KEY_B = kbKey("KEY_LO_B")
     private val KEY_ESC = kbKey("KEY_ESC")
 
@@ -22,6 +29,7 @@ object SettingsScene {
     fun create(): CPScene {
         var feedbackTicks = 0
         var feedback = ""
+        var deleteConfirmActive = false
 
         val inputSprite = object : CPCanvasSprite("settings-input", emptyScalaSeq(), emptyStringSet()) {
             override fun update(ctx: CPSceneObjectContext) {
@@ -31,6 +39,43 @@ object SettingsScene {
                 val evt = ctx.kbEvent
                 if (!evt.isDefined) return
                 val key = evt.get().key()
+
+                if (deleteConfirmActive) {
+                    when {
+                        isYesKey(key) -> {
+                            val ok = kotlin.runCatching { GameState.deleteAllSaveDataAndResetToDefaults() }
+                                .onFailure {
+                                    SentryBootstrap.captureCaughtError(
+                                        message = "Delete save data failed",
+                                        throwable = it,
+                                    )
+                                }
+                                .isSuccess
+                            deleteConfirmActive = false
+                            if (ok) {
+                                feedback = "Save data cleared (progress + decks)."
+                                feedbackTicks = 160
+                            }
+                            kotlin.runCatching { ctx.deleteScene(SceneId.GAME) }
+                                .onFailure {
+                                    SentryBootstrap.captureCaughtError(
+                                        message = "Delete game scene from settings failed",
+                                        throwable = it,
+                                    )
+                                }
+                            ctx.consumeKbEvent()
+                        }
+                        isNoKey(key) || key == KEY_ESC || key == KEY_B -> {
+                            deleteConfirmActive = false
+                            ctx.consumeKbEvent()
+                        }
+                        else -> {
+                            // Swallow other keys so they do not toggle settings under the dialog.
+                            ctx.consumeKbEvent()
+                        }
+                    }
+                    return
+                }
 
                 fun setMode(mode: DisplayModeSetting) {
                     UserSettings.displayMode = mode
@@ -43,6 +88,10 @@ object SettingsScene {
                 when (key) {
                     KEY_1 -> setMode(DisplayModeSetting.FULLSCREEN)
                     KEY_2 -> setMode(DisplayModeSetting.WINDOWED)
+                    KEY_LO_X, KEY_UP_X -> {
+                        deleteConfirmActive = true
+                        ctx.consumeKbEvent()
+                    }
                     KEY_B, KEY_ESC -> {
                         ctx.consumeKbEvent()
                         ctx.switchScene(SceneId.MENU, false)
@@ -79,6 +128,10 @@ object SettingsScene {
                 canv.drawString(centerX - note.length / 2, row, 1, note, CPColor.C_GREY50(), Option.empty())
                 row += 3
 
+                val deleteLine = "[X]  Delete save data"
+                canv.drawString(centerX - deleteLine.length / 2, row, 1, deleteLine, CPColor.C_ORANGE_RED1(), Option.empty())
+                row += 3
+
                 if (feedbackTicks > 0) {
                     canv.drawString(centerX - feedback.length / 2, row, 1, feedback, CPColor.C_GREEN1(), Option.empty())
                     row += 2
@@ -86,6 +139,10 @@ object SettingsScene {
 
                 val back = "B / ESC  Back to menu"
                 canv.drawString(centerX - back.length / 2, row, 1, back, CPColor.C_GREY50(), Option.empty())
+
+                if (deleteConfirmActive) {
+                    drawDeleteConfirm(canv, row + 1)
+                }
             }
         }
 
@@ -108,5 +165,58 @@ object SettingsScene {
         val line = prefix + text
         val color = if (selected) CPColor.C_WHITE() else CPColor.C_STEEL_BLUE1()
         canv.drawString(centerX - line.length / 2, row, 1, line, color, Option.empty())
+    }
+
+    private fun isYesKey(key: CPKeyboardKey): Boolean =
+        key == KEY_LO_Y ||
+            key == KEY_UP_Y ||
+            key.id().equals("y", ignoreCase = true) ||
+            key.ch() == 'y' ||
+            key.ch() == 'Y'
+
+    private fun isNoKey(key: CPKeyboardKey): Boolean =
+        key == KEY_LO_N ||
+            key == KEY_UP_N ||
+            key.id().equals("n", ignoreCase = true) ||
+            key.ch() == 'n' ||
+            key.ch() == 'N'
+
+    private fun drawDeleteConfirm(canv: CPCanvas, preferredY: Int) {
+        val lines = listOf(
+            "  ERASE ALL SAVE DATA?  " to CPColor.C_ORANGE_RED1(),
+            " Unlock progress + deck builds " to CPColor.C_GREY70(),
+            "" to CPColor.C_GREY50(),
+            "  [Y]  Yes, delete everything  " to CPColor.C_WHITE(),
+            "  [N]  Cancel   B / ESC  also cancel  " to CPColor.C_GREY50(),
+        )
+        val boxW = lines.maxOf { it.first.length }.coerceAtLeast(36)
+        val boxH = lines.count { it.first.isNotEmpty() } * 2 + 2
+        val boxX = (canv.width() - boxW) / 2
+        val bottomPinnedY = (canv.height() - boxH - 2).coerceAtLeast(2)
+        val boxY =
+            if (preferredY + boxH + 1 <= canv.height()) {
+                preferredY
+            } else {
+                bottomPinnedY
+            }
+        val border = CPColor(90, 40, 40, "settings-confirm-border")
+        for (bx in boxX - 1 until boxX + boxW + 1) {
+            canv.drawPixel(CPPixel(' ', CPColor.C_WHITE(), Option.apply(border), 0), bx, boxY - 1, 4)
+            canv.drawPixel(CPPixel(' ', CPColor.C_WHITE(), Option.apply(border), 0), bx, boxY + boxH, 4)
+        }
+        for (by in boxY - 1..boxY + boxH) {
+            canv.drawPixel(CPPixel(' ', CPColor.C_WHITE(), Option.apply(border), 0), boxX - 1, by, 4)
+            canv.drawPixel(CPPixel(' ', CPColor.C_WHITE(), Option.apply(border), 0), boxX + boxW, by, 4)
+        }
+        var ly = boxY + 1
+        for ((text, color) in lines) {
+            if (text.isEmpty()) {
+                ly += 1
+                continue
+            }
+            val lx = boxX + (boxW - text.length) / 2
+            canv.drawString(lx, ly, 5, text, color, Option.empty())
+            ly += 2
+        }
     }
 }

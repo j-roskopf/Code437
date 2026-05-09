@@ -30,6 +30,9 @@ object QuestScene {
         else -> -1
     }
 
+    private fun questHotkeyPrompt(count: Int): String =
+        if (count == 1) "Press 1" else "Press 1-$count"
+
     /** Lists active quests with 1–5 hotkeys to abandon (no reward); not used in swap-for-offer mode. */
     private fun appendActiveQuestAbandonLines(lines: MutableList<Pair<String, CPColor>>) {
         if (GameState.activeQuests.isEmpty()) return
@@ -39,7 +42,7 @@ object QuestScene {
             val hotkey = idx + 1
             lines += "[$hotkey] ${aq.template.title}" to CPColor.C_ORANGE1()
         }
-        lines += "Press 1-${GameState.activeQuests.size} to drop one from your log." to CPColor.C_GREEN1()
+        lines += "${questHotkeyPrompt(GameState.activeQuests.size)} to drop one from your log." to CPColor.C_GREEN1()
     }
 
     fun create(): CPScene {
@@ -65,7 +68,7 @@ object QuestScene {
                             lines += "[$hotkey] Drop ${aq.template.title}" to CPColor.C_ORANGE1()
                         }
                         lines += "" to CPColor.C_GREY50()
-                        lines += "Press 1-${GameState.activeQuests.size} to abandon one and make room." to CPColor.C_GREEN1()
+                        lines += "${questHotkeyPrompt(GameState.activeQuests.size)} to abandon one and make room." to CPColor.C_GREEN1()
                         lines += "Y accept this offer once a slot is free." to CPColor.C_GREEN1()
                         lines += "N / B / ESC cancel offer" to CPColor.C_GREY50()
                     }
@@ -152,4 +155,3 @@ object QuestScene {
         )
     }
 }
-

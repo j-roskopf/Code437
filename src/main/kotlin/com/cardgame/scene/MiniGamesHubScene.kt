@@ -59,6 +59,7 @@ object MiniGamesHubScene {
         val inputSprite = object : CPCanvasSprite("minigames-input", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (!ctx.isVisible()) return
                 val evt = ctx.kbEvent
                 if (!evt.isDefined) return
                 val key = evt.get().key()

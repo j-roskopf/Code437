@@ -2147,14 +2147,16 @@ object LevelGenerator {
      */
     private fun scaledNormalHpAtk(level: Int): Pair<Int, Int> {
         val lv = level.coerceIn(1, LevelConfig.COUNT)
-        val hp = (6 + (lv - 1) * 4 + Random.nextInt(-1, 2)).coerceAtLeast(2)
+        val hpStep = if (lv == 2) 2 else (lv - 1) * 4
+        val hp = (6 + hpStep + Random.nextInt(-1, 2)).coerceAtLeast(2)
         val atk = (3 + (lv - 1) / 2 + Random.nextInt(0, 2)).coerceAtLeast(1)
         return Pair(hp, atk)
     }
 
     private fun scaledEliteHpAtk(level: Int): Pair<Int, Int> {
         val (nHp, nAtk) = scaledNormalHpAtk(level)
-        val hp = (nHp + nHp / 2 + Random.nextInt(4, 10)).coerceAtLeast(11)
+        val eliteBonusHp = if (level.coerceIn(1, LevelConfig.COUNT) == 2) Random.nextInt(2, 6) else Random.nextInt(4, 10)
+        val hp = (nHp + nHp / 2 + eliteBonusHp).coerceAtLeast(11)
         val atk = (nAtk + 3 + Random.nextInt(1, 4)).coerceAtLeast(5)
         return Pair(hp, atk)
     }

@@ -102,6 +102,7 @@ object SicBoScene {
         var gold = if (useRunGold) GameState.money else START_GOLD
         var sessionPeak = gold
         var betIndex = 0
+        var activeBet = BETS[betIndex]
         var wager: SicBoRules.Wager = SicBoRules.Wager.SumBig
 
         var rolling = false
@@ -117,8 +118,12 @@ object SicBoScene {
             if (gold > sessionPeak) sessionPeak = gold
         }
 
+        fun currentBet(): Int =
+            if (useRunGold) minOf(BETS[betIndex], gold.coerceAtLeast(1)) else BETS[betIndex]
+
         fun beginRoll() {
-            val bet = BETS[betIndex]
+            val bet = currentBet()
+            activeBet = bet
             if (rolling) return
             if (useRunGold) {
                 if (!GameState.trySpendMoney(bet)) return
@@ -143,7 +148,7 @@ object SicBoScene {
         fun finishRoll() {
             rolling = false
             GameAudio.stopDiceShakeLoop()
-            val bet = BETS[betIndex]
+            val bet = activeBet
             val d1 = finalFace[0]
             val d2 = finalFace[1]
             val d3 = finalFace[2]
@@ -194,7 +199,7 @@ object SicBoScene {
                 val rightUseW = (w - margin - rightX).coerceAtLeast(0)
                 val minSideW = 10
 
-                val bet = BETS[betIndex]
+                val bet = currentBet()
                 val cur = wager
                 fun sel(ok: Boolean) = if (ok) ">" else ""
                 val betsLine = buildString {

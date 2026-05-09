@@ -182,6 +182,7 @@ object SlotMachineScene {
         var gold = if (useRunGold) GameState.money else START_GOLD
         var sessionPeak = gold
         var betIndex = 0
+        var activeBet = BETS[betIndex]
         var spinning = false
         var statusMsg = ""
         /** Cleared on next spin; shown until then. */
@@ -201,6 +202,9 @@ object SlotMachineScene {
             if (gold > sessionPeak) sessionPeak = gold
         }
 
+        fun currentBet(): Int =
+            if (useRunGold) minOf(BETS[betIndex], gold.coerceAtLeast(1)) else BETS[betIndex]
+
         fun randomOutcome(): Triple<SlotMachineArt.Symbol, SlotMachineArt.Symbol, SlotMachineArt.Symbol> {
             return Triple(
                 SlotMachineArt.Symbol.entries.random(),
@@ -210,7 +214,8 @@ object SlotMachineScene {
         }
 
         fun beginSpin() {
-            val bet = BETS[betIndex]
+            val bet = currentBet()
+            activeBet = bet
             if (spinning) return
             if (useRunGold) {
                 if (!GameState.trySpendMoney(bet)) return
@@ -251,7 +256,7 @@ object SlotMachineScene {
             fun symAt(col: Int, row: Int): SlotMachineArt.Symbol =
                 strips[col][(topIndex[col] + row + STRIP_LEN) % STRIP_LEN]
 
-            val bet = BETS[betIndex]
+            val bet = activeBet
             val (win, paylineHits) = SlotMachineRules.collectPaylineHits(bet, ::symAt)
             if (win > 0) {
                 GameAudio.playCasinoWin()
@@ -321,7 +326,7 @@ object SlotMachineScene {
                     hint to CPColor.C_GREY70(),
                 )
 
-                val bet = BETS[betIndex]
+                val bet = currentBet()
                 val payRows = buildList {
                     add("RULES" to CPColor.C_GOLD1())
                     add("" to CPColor.C_GREY50())
@@ -487,6 +492,7 @@ object SlotMachineScene {
         val inputSprite = object : CPCanvasSprite("slots-input", shaders, tags) {
             override fun update(ctx: CPSceneObjectContext) {
                 super.update(ctx)
+                if (!ctx.isVisible()) return
                 if (spinning) return
                 val evt = ctx.kbEvent
                 if (!evt.isDefined) return
