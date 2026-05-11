@@ -92,7 +92,13 @@ tasks.register<Exec>("packageNative") {
 
         val appName = "Code 437"
         val macPackageName = "Code437"
+        val macPackageIdentifier = "com.code437.game"
         val appVersion = "1.0.0"
+        val iconFile = when {
+            os.isMacOsX -> file("src/main/resources/icons/code437-title.icns")
+            os.isWindows -> file("src/main/resources/icons/code437-title.ico")
+            else -> file("src/main/resources/icons/code437-title.png")
+        }
         val installRoot = layout.buildDirectory.dir("install").get().asFile
         val installedAppDir = installRoot.listFiles()
             ?.firstOrNull { it.isDirectory }
@@ -119,6 +125,7 @@ tasks.register<Exec>("packageNative") {
             "--name", appName,
             "--app-version", appVersion,
             "--vendor", "Code 437",
+            "--icon", iconFile.absolutePath,
             "--input", inputDir,
             "--main-jar", mainJar,
             "--main-class", "com.cardgame.MainKt",
@@ -129,7 +136,10 @@ tasks.register<Exec>("packageNative") {
         }
 
         if (os.isMacOsX) {
-            cmd += listOf("--mac-package-name", macPackageName)
+            cmd += listOf(
+                "--mac-package-name", macPackageName,
+                "--mac-package-identifier", macPackageIdentifier,
+            )
         } else if (os.isWindows) {
             cmd += listOf("--win-dir-chooser", "--win-menu", "--win-shortcut")
         }
